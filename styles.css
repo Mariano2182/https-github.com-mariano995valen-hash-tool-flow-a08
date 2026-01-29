@@ -32,6 +32,13 @@ a {
  decoración de texto: ninguna; 
 }
 
+botón, 
+entrada, 
+select,
+Mensajes de texto { 
+ fuente: heredar; 
+}
+
 .hero {
  Antecedentes: gradiente lineal (135°, #081427 0%, #113362 50%, #0f4ba5 100%); 
   color: #fff;
@@ -55,9 +62,12 @@ a {
  alinear-ítems: centro; 
  Diferencia: 20px; 
  tamaño de fuente: 0,95rem; 
+ Envoltura flexible: envolvente; 
+ contento-justificación: extremo flexible; 
 }
 
-.nav-links botón { 
+.nav-links, 
+.nav-links .primary {
  margen izquierda: 16px; 
 }
 
@@ -69,6 +79,10 @@ a {
  peso de fuente: 600; 
   cursor: pointer;
  transición: 0,2s facilidad; 
+ pantalla: flexión en línea; 
+ alinear-ítems: centro; 
+ justificar-contenido: centro; 
+ Diferencia: 8px; 
 }
 
 .primary {
@@ -82,12 +96,17 @@ a {
 
 .ghost {
  Antecedentes: Transparente; 
-  color: #fff;
+ color: heredar; 
  borde: RGB sólido de 1px (255, 255, 255, 0,4); 
 }
 
+.sección .ghost { 
+ color de borde: RGBA (26, 31, 44, 0,2); 
+  color: var(--text);
+}
+
 .ghost:hover {
- color del borde: #fff; 
+ color-borde: actualColor; 
 }
 
 .hero-content {
@@ -204,6 +223,10 @@ h1 {
   color: #fff;
 }
 
+.section.light {
+ Antecedentes: #fdfdff; 
+}
+
 .section-title {
  Ancho máximo: 720px; 
  margen inferior: 40px; 
@@ -221,7 +244,8 @@ h1 {
 }
 
 artículo sobre .cards, 
-.card-highlight {
+.carta resaltada, 
+.experience-card {
  Antecedentes: VAR(--Carta); 
  relleno: 24px; 
  Radio de frontera: 20px; 
@@ -275,6 +299,61 @@ artículo sobre .cards,
  Peso de fuente: 700; 
 }
 
+.experience-grid {
+ pantalla: cuadrícula; 
+ cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(250px, 1fr)); 
+ Diferencia: 24px; 
+}
+
+.upload-box {
+ borde: 1px RGB discontinuo (15, 75, 165, 0,4); 
+ Radio de frontera: 16px; 
+ acolchado: 16px; 
+ margen: 16px 0; 
+ antecedentes: RGBA (31, 124, 255, 0,05); 
+}
+
+.status-list {
+ pantalla: cuadrícula; 
+ Diferencia: 6px; 
+ Margen arriba: 16px; 
+ tamaño de fuente: 0,9rem; 
+  color: var(--muted);
+}
+
+.table-wrapper {
+ Overflow-X: Auto; 
+ Margen arriba: 16px; 
+}
+
+table {
+ ancho: 100%; 
+ colapso fronterizo: colapso; 
+ tamaño de fuente: 0,9rem; 
+}
+
+th,
+td {
+  padding: 10px 12px;
+ borde en el fondo: 1px RGB sólido (26, 31, 44, 0,08); 
+ alineación de texto: izquierda; 
+}
+
+.progress {
+ antecedentes: RGBA (15, 75, 165, 0,1); 
+ Radio de frontera: 999px; 
+ altura: 12px; 
+ desbordamiento: oculto; 
+ margen: 16px 0; 
+}
+
+.progress-bar {
+ altura: 100%; 
+ ancho: 62%; 
+ Antecedentes: VAR(--primaria); 
+ transición: ancho 0,3s facilidad; 
+}
+
 .split {
  pantalla: cuadrícula; 
  cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(260px, 1fr)); 
@@ -297,6 +376,38 @@ artículo sobre .cards,
 .card-highlight {
  Antecedentes: Gradiente lineal (160°, #fef3dd, #fff); 
  borde: 1px sólido #f6e0b7; 
+}
+
+.workspace {
+ pantalla: cuadrícula; 
+ Diferencia: 14 px; 
+ Margen: 20px 0; 
+}
+
+.workspace span {
+ pantalla: bloqueo; 
+  color: var(--muted);
+ tamaño de fuente: 0,85rem; 
+}
+
+.form {
+ pantalla: cuadrícula; 
+ Diferencia: 14 px; 
+}
+
+.form input,
+.form select,
+.form texting { 
+ ancho: 100%; 
+  padding: 10px 12px;
+ Radio de frontera: 12px; 
+ borde: RGB sólido de 1px (26, 31, 44, 0,2); 
+ Margen arriba: 6px; 
+}
+
+.form-status {
+ tamaño de fuente: 0,9rem; 
+  color: var(--muted);
 }
 
 .spotlight {
@@ -358,6 +469,73 @@ artículo sobre .cards,
 
 .footer-cta {
  text-align: derecha; 
+}
+
+.footer-cta .ghost {
+  color: #fff;
+ color de borde: RGBA (255, 255, 255, 0,4); 
+}
+
+.modal {
+ posición: fija; 
+ inserto: 0; 
+ antecedentes: RGBA (5, 14, 28, 0,7); 
+ pantalla: cuadrícula; 
+ Objetos de lugar: centro; 
+ opacidad: 0; 
+ eventos puntuales: ninguno; 
+ transición: 0,2s facilidad; 
+ relleno: 20px; 
+ Z-índice: 10; 
+}
+
+.modal.active {
+ opacidad: 1; 
+ Eventos de puntería: Auto; 
+}
+
+.modal-content {
+ Antecedentes: #fff; 
+  color: var(--text);
+ Acolchado: 28px; 
+ Radio de frontera: 20px; 
+ Ancho máximo: 480px; 
+ ancho: 100%; 
+ posición: relativa; 
+ pantalla: cuadrícula; 
+ Diferencia: 16px; 
+}
+
+.modal-close {
+ posición: absoluta; 
+ Arriba: 16px; 
+ derecha: 16px; 
+ frontera: ninguna; 
+ Antecedentes: Transparente; 
+ tamaño de fuente: 1,4rem; 
+  cursor: pointer;
+}
+
+.tour {
+ pantalla: cuadrícula; 
+ Diferencia: 16px; 
+}
+
+.tour-frame {
+ Altura: 180px; 
+ Radio de frontera: 16px; 
+ Antecedentes: Gradiente lineal (135°, RGBA (31, 124, 255, 0,2), RGBA (15, 75, 165, 0,25)); 
+ pantalla: cuadrícula; 
+ Objetos de lugar: centro; 
+  color: var(--muted);
+ peso de fuente: 600; 
+}
+
+@media (ancho máximo: 900px) { 
+  .spotlight {
+ Margen: 0 8VW 60px; 
+ Acolchado: 40px; 
+  }
 }
 
 @media (ancho máximo: 720px) { 
