@@ -1,13 +1,18 @@
-<! DOCTYPE html> 
+<!  DOCTYPE html>   
+<! DOCTYPE html>  
 <html lang="es">
+ <cabeza> 
  <cabeza> 
     <meta charset="UTF-8" />
  <meta nombre="viewport" content="width=device-width, initial-scale=1.0" /> 
     <title>RMM STRUCTURES | Plataforma BIM en la nube</title>
+ <meta nombre="viewport" content="width=device-width, initial-scale=1.0" /> 
+ <título>ESTRUCTURAS RMM | Plataforma BIM</título> 
     <link rel="stylesheet" href="styles.css" />
     <script src="script.js" defer></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+ <enlace 
  <enlace 
       href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;600;700;800&display=swap"
       rel="stylesheet"
@@ -15,16 +20,28 @@
  </cabeza> 
  <cuerpo> 
  <encabezado clase="hero"> 
-      <nav class="nav">
+ <nav class="none"> 
+ <div class="logo">RMM ESTRUCTURAS</div> 
+ </cabeza> 
+ <cuerpo> 
+ <encabezado clase="hero" id="inicio"> 
+ <nav class="top-nav"> 
  <div class="logo">RMM ESTRUCTURAS</div> 
         <div class="nav-links">
-          <a href="#plataforma">Plataforma</a>
+ <a href="#plataforma">Plataformaa</a> 
           <a href="#modulos">Módulos</a>
  < href="#flujo">Flo BIM</a> 
           <a href="#experiencia">Experiencia</a>
           <a href="#equipo">Equipo</a>
-          <button class="primary" data-modal="demo-modal">Solicitar demo</button>
+ <button class="primary" data-modal="demo-modal">Solicitar demo</button> 
+ <a href="#map">Mapa</a> 
+          <a href="#editor">Editor BIM</a>
+ <a href="#modelo">Model</a> 
+ < href="#flujo">fl</a> 
+          <a href="#stack">Stack</a>
+ <button class="primary" data-action="open-demo">Crear mi nave</button> 
         </div>
+ </navegación> 
  </navegación> 
       <div class="hero-content">
  < div> 
@@ -33,26 +50,44 @@
             Diseña, calcula y fabrica estructuras metálicas con la precisión de Tekla,
             ahora en la nube.
           </h1>
+ < div> 
+          <p class="eyebrow">Plataforma Web BIM para Naves Industriales</p>
+          <h1>Diseñá, calculá y fabricá estructuras metálicas desde la web.</h1>
           <p class="lead">
             RMM STRUCTURES integra geometría paramétrica, coordinación BIM, cálculos y
             documentación de taller en un solo entorno colaborativo.
+            RMM STRUCTURES permite pasar de una idea a un <strong>modelo estructural fabricable</strong>
+            con un flujo BIM paramétrico, versionado y exportable.
           </p>
-          <div class="cta-group">
+ <div class="cta-group"> 
             <button class="primary" data-scroll="#proyecto">Comenzar proyecto</button>
  <button class="ghost" data-modal="tour-modal">Ver tour virtual</button> 
+ <div class="cta-row"> 
+ <button class="primary" data-action="open-demo">Crear mi nave</button> 
+            <button class="ghost" data-action="scroll" data-target="#wizard">Ver demo</button>
           </div>
  <div class="hero-métricas"> 
  < div> 
  <fuerte>100%</fuerte> 
-              <span>Modelado 3D detallado</span>
+ <Espacio>Modelado 3D detallado</span> 
+ <div class="hero-métricas"> 
+ < div> 
+ <fuerte>100%</fuerte> 
+ <espacio>BIM real</espacio> 
             </div>
  < div> 
  <fuerte>+35</fuerte> 
  <span>Conectores a CNC< por SPA> 
+ < div> 
+ <fuerte>0</fuerte> 
+ <espacio>Redibujos</espacio> 
             </div>
  < div> 
  <fuerte>24/7</fuerte> 
               <span>Colaboración en tiempo real</span>
+ < div> 
+ <fuerte>IFC</fuerte> 
+              <span>Integración abierta</span>
             </div>
           </div>
         </div>
@@ -60,6 +95,8 @@
           <div class="panel-header">
  <vista de parámetros span>BIM</span> 
  <span class="status">Synchronizado</span> 
+            <h2>Panel rápido</h2>
+            <span class="status">MVP listo</span>
           </div>
           <div class="panel-grid">
  < div> 
@@ -68,6 +105,86 @@
                 Modelo con conexiones, pernos, soldaduras y placas definidas con
                 estándares internacionales.
               </p>
+          <ul>
+            <li>Modelo BIM paramétrico</li>
+            <li>Validaciones CIRSOC automáticas</li>
+            <li>Listados y exportaciones</li>
+ </UL> 
+          <button class="ghost" data-action="scroll" data-target="#reglas">Explorar reglas</button>
+        </div>
+      </div>
+ </encabezado> 
+
+ <Main> 
+      <section id="mapa" class="section">
+        <div class="section-title">
+          <h2>Mapa de Pantallas – Plataforma Web BIM para Naves Industriales</h2>
+          <p>
+            Visión: que un cliente, ingeniero o fabricante pueda pasar de una idea a un modelo
+            estructural fabricable. Este mapa está pensado para crecer sin romper el sistema.
+          </p>
+        </div>
+        <div class="grid-two">
+          <article class="card">
+ <h3>1. Página de inicio / Página de aterrizaje</h3> 
+            <ul>
+              <li>Hero 3D interactivo y claim principal.</li>
+              <li>CTA: <strong>Crear mi nave</strong> + <strong>Ver demo</strong>.</li>
+              <li>Beneficios: BIM real, listados automáticos, enfoque fabricación.</li>
+ </UL> 
+ </artículo> 
+          <article class="card">
+ <h3>2. Iniciar sesión / Registrarse</h3> 
+            <ul>
+              <li>Roles: Cliente, Ingeniero, Fabricador, Admin RMM.</li>
+ <li>Inicio de sesión correo electrónico / Google.</li> 
+              <li>Acceso a proyectos guardados.</li>
+ </UL> 
+ </artículo> 
+          <article class="card">
+ <h3>3. Panel de control del proyecto</h3> 
+            <ul>
+              <li>Lista de proyectos con estado.</li>
+              <li>Botón <strong>Nuevo Proyecto</strong>.</li>
+              <li>Filtros por estado.</li>
+ </UL> 
+ </artículo> 
+          <article class="card">
+            <h3>4. Asistente de Creación de Nave</h3>
+            <ul>
+              <li>Datos generales, dimensiones y sistema estructural.</li>
+              <li>Confirmación y creación del modelo 3D.</li>
+ </UL> 
+ </artículo> 
+        </div>
+ </sección> 
+
+      <section id="wizard" class="section alt">
+        <div class="section-title">
+          <h2>Asistente de creación de nave (demo funcional)</h2>
+          <p>Bajamos ingeniería compleja a decisiones simples con un wizard paso a paso.</p>
+        </div>
+        <div class="wizard">
+          <div class="wizard-steps">
+            <button class="step active" data-step="1">Paso 1</button>
+            <button class="step" data-step="2">Paso 2</button>
+            <button class="step" data-step="3">Paso 3</button>
+            <button class="step" data-step="4">Confirmar</button>
+          </div>
+          <form id="wizard-form" class="wizard-form">
+            <div class="step-panel active" data-step="1">
+ <disco> 
+                Tipo de nave
+                <select name="tipo">
+ <valor de opción="industrial">Industrial</opción> 
+ <valor de opción="logistica">Logística</opción> 
+ <valor de opción="agricola">Agrícola</opción> 
+                </select>
+ </sello> 
+ <disco> 
+                Ubicación
+ <input type="text" name="ubicacion" placeholder="Buenos Aires, AR" requerido /> 
+ </sello> 
             </div>
  < div> 
               <h3>Control de fabricación</h3>
@@ -75,6 +192,23 @@
                 Listados de materiales, planos de taller y archivos CNC generados
                 automáticamente.
               </p>
+            <div class="step-panel" data-step="2">
+ <disco> 
+                Ancho (m)
+ <tipo de entrada="número" nombre="ancho" min="10" max="60" valor="24" requerido /> 
+ </sello> 
+ <disco> 
+                Largo (m)
+ <tipo de entrada="número" nombre="largo" min="20" max="200" valor="60" requerido /> 
+ </sello> 
+ <disco> 
+                Altura libre (m)
+ <tipo de entrada="número" nombre="altura" min="4" max="16" valor="8" requerido /> 
+ </sello> 
+ <disco> 
+                Cantidad de pórticos
+ <tipo de entrada="número" nombre="porticos" min="4" max="24" valor="10" requerido /> 
+ </sello> 
             </div>
  < div> 
               <h3>Analítica avanzada</h3>
@@ -82,6 +216,37 @@
                 Detección de interferencias, control de peso y trazabilidad de
                 componentes.
               </p>
+            <div class="step-panel" data-step="3">
+ <disco> 
+                Tipo de pórtico
+                <select name="portico">
+ <valor de opción="rígido">Rígido</opción> 
+ <valor de opción="articular">articular</opción> 
+ <valor de opción="mixto">Mixto</opción> 
+                </select>
+ </sello> 
+ <disco> 
+                Tipo de perfiles
+                <select name="perfil">
+ <valor de opción="ipe">IPE</opción> 
+ <valor de opción="hea">HEA</opción> 
+ <valor opción="tube">tube</opción> 
+                </select>
+ </sello> 
+ <disco> 
+                Cubierta
+ <seleccione nombre="cubierta"> 
+ <valor de opción="chapa metálica">chapa keystone </opción> 
+                  <option value="panel">Panel sándwich</option>
+                </select>
+ </sello> 
+ <disco> 
+                Cerramientos
+                <select name="cerramiento">
+ <valor de opción="parcial">parcial</opción> 
+ <valor de la opción="total">Total</opción> 
+                </select>
+ </sello> 
             </div>
           </div>
           <div class="viewer">
@@ -100,21 +265,34 @@
                 <strong id="viewer-precision">98%</strong>
  <tramo>Precisión CNC</tramo> 
               </div>
+            <div class="step-panel" data-step="4">
+              <div class="summary-box" id="wizard-summary"></div>
+              <button type="submit" class="primary">Crear modelo 3D</button>
+              <p class="helper" id="wizard-status">Completá el wizard para generar el modelo.</p>
             </div>
             <button class="ghost" data-action="sync">Sincronizar modelo</button>
           </div>
+            <div class="wizard-controls">
+ <tipo de botón="botón" clase="fantasma" data-action="prev">Anterior</botón> 
+ <buttontype="button" class="primary" data-action="next">Siguiente</button> 
+            </div>
+ </forma> 
         </div>
       </div>
  </encabezado> 
+ </sección> 
 
- <Main> 
+ <Principal> 
  <section id="plataforma" clase="sección"> 
+ <sección id="editor" clase="sección"> 
         <div class="section-title">
           <h2>Una plataforma diseñada por ingenieros y especialistas BIM</h2>
           <p>
             Integramos arquitectura, ingeniería civil, metalmecánica y software para
             entregar un flujo de trabajo completo: desde la concepción hasta el montaje.
           </p>
+          <h2>Editor BIM 3D (Corazón del sistema)</h2>
+          <p>Modelar como ingeniero, usar como humano.</p>
         </div>
         <div class="cards">
  <artículo> 
@@ -138,28 +316,58 @@
               permisos, historiales y versiones.
             </p>
  </artículo> 
+        <div class="grid-two">
+          <article class="card">
+ <h3>Main Vista</h3> 
+            <ul>
+              <li>Modelo 3D navegable con grillas y niveles.</li>
+              <li>Acciones: copiar pórtico, editar parámetros, ocultar/mostrar elementos.</li>
+ </UL> 
+            <div class="bim-preview">
+              <div class="bim-grid"></div>
+ <Vista 3D interactiva (demo)></span> 
+            </div>
+ </artículo> 
+          <article class="card">
+            <h3>Árbol BIM + Propiedades</h3>
+            <div class="tree" id="bim-tree"></div>
+ </artículo> 
         </div>
+ </sección> 
  </sección> 
 
  <section id="módulos" class="section dark"> 
+      <section id="union" class="section alt">
         <div class="section-title">
           <h2>Prestaciones equivalentes a Tekla Structures</h2>
           <p>
             Todo lo que necesitas para reemplazar el flujo tradicional con un entorno
             web seguro, escalable y conectado.
           </p>
+ <h2>Unirse a Editor</h2> 
+          <p>Llevamos el modelo a nivel fabricable.</p>
         </div>
  <div class="cuadrícula de características"> 
-          <div class="feature">
+          <div class="característica">
             <h3>Modelador 3D con detalle de fabricación</h3>
+        <div class="grid-two">
+          <Article Class="Card">
+ <h3>Tipo</h3> 
             <ul>
               <li>Conexiones complejas preconfiguradas.</li>
               <li>Detalles de pernos, soldaduras y cortes CNC.</li>
               <li>Control de colisiones y coordinación interdisciplinaria.</li>
  </UL> 
           </div>
-          <div class="feature">
+          <div class="característica">
             <h3>Planos automáticos y listados</h3>
+ <li>Placa base</li> 
+ <Li>Columna de vigas</li> 
+              <li>Arriostramiento</li>
+ </UL> 
+          </Artículo>
+          <Article Class="Card">
+ <h3>P arámeteros</h3> 
             <ul>
               <li>Planos GA, de montaje y taller.</li>
               <li>Listados de materiales, pesos y embalaje.</li>
@@ -168,6 +376,22 @@
           </div>
           <div class="feature">
             <h3>Planificación y control de obra</h3>
+ <Espesores>li</li> 
+              <li>Pernos</li>
+ <li>Soldadura</li> 
+ </UL> 
+ </artículo> 
+        </div>
+ </sección> 
+
+      <section id="listados" class="section">
+        <div class="section-title">
+          <h2>Listados y cómputos</h2>
+          <p>Transformar geometría en decisiones económicas.</p>
+        </div>
+        <div class="grid-two">
+          <article class="card">
+            <h3>Tablas automáticas</h3>
             <ul>
               <li>Avance 4D y seguimiento de montaje.</li>
               <li>Logística de piezas y rutas de transporte.</li>
@@ -176,18 +400,66 @@
           </div>
           <div class="feature">
             <h3>Fabricación y metalmecánica</h3>
+              <li>Perfiles, placas, pernos y peso total.</li>
+ <li>Exportar Excel/CSV.</li> 
+ </UL> 
+ </artículo> 
+          <article class="card">
+ <h3>Costes preliminares</h3> 
+            <div class="calculator">
+ <disco> 
+                Precio $/kg
+ <tipo de entrada="número" id = precio-kg" valor = 2,5" paso = 0,1" /> 
+ </sello> 
+ <disco> 
+                Coef. fabricación
+ <tipo de entrada="número" id="coef-fab" valor="1" paso="0,1" /> 
+ </sello> 
+ <disco> 
+                Coef. montaje
+ <tipo de entrada="número" id="coef-mont" valor="0,15" paso="0,01" /> 
+ </sello> 
+              <button class="primary" data-action="calc-cost">Calcular</button>
+              <div class="summary-box" id="cost-summary"></div>
+            </div>
+ </artículo> 
+        </div>
+ </sección> 
+
+ <section id="compartir" clase="sección alt"> 
+        <div class="section-title">
+ <h2>Compartir Visualización</h2> 
+          <p>Vender el proyecto con cambios controlados.</p>
+        </div>
+        <div class="grid-two">
+          <article class="card">
+ <h3>Características</h3> 
             <ul>
               <li>Integración con máquinas CNC.</li>
               <li>Simulación de corte y ensamblaje.</li>
               <li>Control de calidad y certificaciones.</li>
  </UL> 
           </div>
+              <li>Link compartido con navegación 3D.</li>
+              <li>Cambios limitados: altura, ancho, longitud.</li>
+              <li>Métricas en vivo: peso y costo estimado.</li>
+ </UL> 
+ </artículo> 
+          <article class="card">
+            <h3>Compartir proyecto</h3>
+            <button class="ghost" data-action="share">Generar link</button>
+ <p class="helper" id="share-status">Enlace no generado.</p> 
+ </artículo> 
         </div>
+ </sección> 
  </sección> 
 
  <section id="flujo" clase="sección"> 
+ <sección id="exportar" clase="sección"> 
         <div class="section-title">
           <h2>Flujo completo BIM + paramétrico</h2>
+          <h2>Exportaciones</h2>
+          <p>Integración directa con el ecosistema BIM.</p>
         </div>
         <div class="timeline">
  < div> 
@@ -210,16 +482,34 @@
             <h3>Producción y montaje</h3>
             <p>Planos, listados y control del avance en campo.</p>
           </div>
+        <div class="grid-two">
+          <article class="card">
+            <h3>Formatos</h3>
+            <ul>
+              <li>IFC estructural</li>
+ <placas >DXF</li> 
+ <resumen > PDF</li> 
+ </UL> 
+ </artículo> 
+          <article class="card">
+            <h3>Estado de exportación</h3>
+            <div class="summary-box" id="export-status">Pendiente de validaciones.</div>
+            <button class="primary" data-action="export">Exportar</button>
+ </artículo> 
         </div>
+ </sección> 
  </sección> 
 
  <section id="experiencia" clase="sección light"> 
+      <section id="config" class="section alt">
         <div class="section-title">
           <h2>Experiencia interactiva del proyecto</h2>
           <p>
             Simula la carga de modelos IFC, genera listados de materiales y valida la
             coordinación con indicadores en tiempo real.
           </p>
+          <h2>Configuración</h2>
+          <p>Adaptar RMM a cada empresa.</p>
         </div>
         <div class="experience-grid">
           <div class="experience-card">
@@ -244,7 +534,7 @@
                   <tr>
  <>Elemento</th> 
  <> cantidad</th> 
- <> peso</th> 
+ <> peso</dime> 
  <>Estado</th> 
                   </tr>
                 </thead>
@@ -257,15 +547,34 @@
             </div>
           </div>
           <div class="experience-card">
- <panel avanzado h3>4D</h3> 
+ <Panel Avanzado H3>4D</H3> 
             <p>Actualiza el avance de obra y sincroniza con logística.</p>
  <div class="progreso"> 
               <div class="progress-bar" id="progress-bar"></div>
             </div>
             <button class="primary" data-action="progress">Actualizar avance</button>
- <p id="etiqueta-progreso">Progreso actual: 62%</p> 
+ <p id="etiqueta-progress">Progreso real: 62%</p> 
           </div>
+        <div class="grid-two">
+          <article class="card">
+            <h3>Opciones</h3>
+            <ul>
+              <li>Biblioteca de perfiles</li>
+              <li>Costos por kg</li>
+              <li>Normas internas</li>
+ </UL> 
+ </artículo> 
+          <article class="card">
+ <h3>Hoja de ruta futura (no MVP)</h3> 
+            <ul>
+              <li>Cálculo estructural</li>
+              <li>CNC</li>
+ <li>Normativa</li> 
+              <li>API pública</li>
+ </UL> 
+ </artículo> 
         </div>
+ </sección> 
  </sección> 
 
       <section id="proyecto" class="section split">
@@ -300,6 +609,10 @@
             <button class="primary" type="submit">Crear workspace</button>
             <p class="form-status" id="project-status">Completa el formulario para crear tu workspace.</p>
  </forma> 
+      <section id="modelo" class="section">
+        <div class="section-title">
+          <h2>Modelo de datos BIM</h2>
+          <p>No guardamos geometría suelta, guardamos decisiones de ingeniería.</p>
         </div>
         <div class="card-highlight">
  <h3>Espacio de trabajo activo</h3> 
@@ -323,7 +636,29 @@
           </div>
           <button class="ghost" data-action="share">Compartir con equipo</button>
  <p class="form-status" id="share-status">Crea un espacio de trabajo para habilitar invitaciones.</p> 
+        <div class="grid-two">
+          <article class="card">
+            <h3>Proyecto</h3>
+            <p>Raíz del sistema: project_id, nombre, cliente, estado, versión_actual.</p>
+            <p>Relaciones: 1 Proyecto → N Naves · 1 Proyecto → N Versiones.</p>
+ </artículo> 
+          <article class="card">
+ <nave h3></h3> 
+            <p>nave_id, ancho, largo, altura_libre, modulación, tipo_nave.</p>
+            <p>Relaciones: Pórticos, Correas, Arriostramientos.</p>
+ </artículo> 
+          <article class="card">
+ <pórtico h3></h3> 
+ <p>portico_id, posición_X, escribe.</p> 
+            <p>Relaciones: 2 Columnas + 1 Viga.</p>
+ </artículo> 
+          <article class="card">
+ <elemento h3>estructural</h3> 
+            <p>elemento_id, tipo, perfil_id, material, longitud, orientación.</p>
+            <p>Relación: 1 Elemento → N Uniones.</p>
+ </artículo> 
         </div>
+ </sección> 
  </sección> 
 
  <section id="equipo" clase="sección dividida"> 
@@ -340,14 +675,60 @@
             <li>Gestión BIM, coordinación y control documental.</li>
             <li>Geometría paramétrica y bases de datos inteligentes.</li>
  </UL> 
+      <section id="flujo" class="section alt">
+        <div class="section-title">
+          <h2>Flujo completo BIM – Cliente → Ingeniería → Fabricación</h2>
+          <p>Una sola fuente de verdad: modelo BIM paramétrico.</p>
         </div>
-        <div class="card-highlight">
+ <div class="cartón-resaltado"> 
           <h3>¿Listo para migrar a la nube?</h3>
           <p>
             Centraliza tus proyectos, reduce retrabajos y acelera la entrega con
  ESTRUCTURAS DE RMM. 
           </p>
           <button class="primary" data-modal="consulting-modal">Agenda una consultoría</button>
+        <div class="flow" id="flow-cards"></div>
+      </sección>
+
+      <section id="stack" class="section">
+        <div class="section-title">
+          <h2>Stack tecnológico definitivo</h2>
+          <p>Ingeniería primero, tecnología al servicio del modelo.</p>
+        </div>
+ </sección> 
+        <div class="grid-two">
+          <article class="card">
+            <h3>Frontend</h3>
+            <ul>
+              <li>React + TypeScript</li>
+              <li>Vite</li>
+              <li>Three.js + WebGL</li>
+              <li>Redux / Zustand</li>
+ </UL> 
+ </artículo> 
+          <article class="card">
+            <h3>Backend</h3>
+            <ul>
+              <li>Node.js (NestJS) o Python (FastAPI)</li>
+              <li>Reglas estructurales y versionado BIM</li>
+              <li>Orquestación de flujos</li>
+ </UL> 
+ </artículo> 
+          <article class="card">
+            <h3>Base de datos</h3>
+            <ul>
+              <li>PostgreSQL + JSONB</li>
+ <Li>No se guardan mallas 3D</li> 
+ </UL> 
+ </artículo> 
+          <article class="card">
+            <h3>Exportaciones</h3>
+            <ul>
+              <li>IFC.js</li>
+              <li>DXF backend</li>
+ <li>Excel/CSV</li> 
+ </UL> 
+ </artículo> 
         </div>
  </sección> 
 
@@ -372,6 +753,10 @@
               <span>Conexión diseño-fabricación</span>
             </div>
           </div>
+      <section id="backend" class="section alt">
+        <div class="section-title">
+          <h2>Guardado de proyectos (backend mínimo)</h2>
+          <p>Persistir, autenticar y versionar sin costos.</p>
         </div>
         <div class="spotlight-card">
           <h3>Integraciones clave</h3>
@@ -380,6 +765,36 @@
             <li>Visores IFC y coordinación con BIM 360.</li>
             <li>Automatización con API REST y Python.</li>
  </UL> 
+        <div class="grid-two">
+          <article class="card">
+ <h3>Opción A: Libre de Supabase</h3> 
+            <p>PostgreSQL gestionada + Auth + API REST automática.</p>
+ </artículo> 
+          <article class="card">
+ <h3>Opción B: Firestock Firebase</h3> 
+            <p>JSON BIM directo con versionado en subcolecciones.</p>
+ </artículo> 
+          <article class="card">
+ <h3>Opción C: Desconectado</h3> 
+            <p>localStorage / IndexedDB para demos sin backend.</p>
+ </artículo> 
+        </div>
+ </sección> 
+
+      <section id="reglas" class="section">
+        <div class="section-title">
+          <h2>Motor de validaciones (Reglas 1 a 12)</h2>
+          <p>Chequeos determinísticos para estabilidad, fabricabilidad y trazabilidad.</p>
+        </div>
+ </sección> 
+ </principal> 
+        <div class="rules">
+          <div class="rules-panel">
+            <button class="primary" data-action="run-rules">Ejecutar validaciones</button>
+            <div id="rules-summary" class="summary-box">Listo para validar.</div>
+            <div class="rules-list" id="rules-list"></div>
+          </div>
+          <div class="rules-detail" id="rules-detail"></div>
         </div>
  </sección> 
  </principal> 
@@ -394,11 +809,18 @@
         <a href="#modulos">Módulos</a>
  < href="#flujo">Flo BIM</a> 
         <a href="#equipo">Equipo</a>
+ < div> 
+ <ESTRUCTURAS H3>RMM</H3> 
+        <p>Plataforma BIM para estructuras metálicas y fabricación industrial.</p>
       </div>
       <div class="footer-cta">
         <p>contacto@rmmstructures.com</p>
  <a class="ghost" href="brochure.html" descargar>Descarar folleto</a> 
+      <div>
+        <p>Contacto: contacto@rmmstructures.com</p>
+        <p>Roadmap: cálculo estructural, CNC, API pública.</p>
       </div>
+ </pie de página> 
  </pie de página> 
 
     <div class="modal" id="demo-modal" aria-hidden="true">
@@ -460,8 +882,18 @@
           </div>
           <button class="ghost" data-action="tour">Iniciar recorrido</button>
  <p class="form-status" id="tour-status">Pulsa start para simular el tour.</p> 
+        <button class="modal-close" data-action="close-modal">×</button>
+        <h2>Crear mi nave</h2>
+        <p>Elegí un rol para iniciar el flujo.</p>
+        <div class="role-grid">
+          <button class="ghost" data-action="select-role" data-role="Cliente">Cliente</button>
+          <button class="ghost" data-action="select-role" data-role="Ingeniero">Ingeniero</button>
+          <button class="ghost" data-action="select-role" data-role="Fabricador">Fabricador</button>
+          <button class="ghost" data-action="select-role" data-role="Admin">Admin RMM</button>
         </div>
+        <p class="helper" id="role-status">Seleccioná un rol para continuar.</p>
       </div>
     </div>
+ </cuerpo> 
  </cuerpo> 
 </html>
