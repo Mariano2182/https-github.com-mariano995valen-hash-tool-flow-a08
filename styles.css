@@ -9,9 +9,24 @@
  --silenciado: #55657f; 
  --tarjeta: #ffffff; 
  --acento: #f9b64c; 
+ esquema de colores: luz; 
+ familia de fuentes: "Manrope", sans-serif; 
+ --primaria: #1f7cff; 
+ --primaria-oscuridad: #0f4ba5; 
+  --bg: #f4f6fb;
+  --bg-alt: #ffffff;
+  --ink: #0f172a;
+ --silenciado: #4b5563; 
+ --tarjeta: #ffffff; 
+ --acento: #f9b64c; 
+ --frontera: rgba(15, 23, 42, 0,12); 
+  --shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
 }
 
 * {
+ Tamaño de caja: caja de borde; 
+ Marje: 0; 
+ relleno: 0; 
  Tamaño de caja: caja de borde; 
  marje: 0; 
  relleno: 0; 
@@ -19,15 +34,22 @@
 
 html {
  comportamiento-desplazamiento: suave; 
+ comportamiento-desplazamiento: suave; 
 }
 
 cuerpo { 
  Antecedentes: VAR(--BG); 
-  color: var(--text);
+ color: var(--text); 
+ altura de línea: 1,6; 
+cuerpo { 
+ Antecedentes: VAR(--BG); 
+  color: var(--ink);
  altura de línea: 1,6; 
 }
 
 a {
+ color: heredar; 
+ decoración de texto: ninguna; 
  color: heredar; 
  decoración de texto: ninguna; 
 }
@@ -37,12 +59,23 @@ entrada,
 select,
 Mensajes de texto { 
  fuente: heredar; 
+ul,
+ol {
+ relleno-izquierda: 1,4rem; 
+}
+
+botón, 
+entrada, 
+select {
+ fuente: heredar; 
 }
 
 .hero {
  Antecedentes: gradiente lineal (135°, #081427 0%, #113362 50%, #0f4ba5 100%); 
+ antecedentes: gradiente lineal (135°, #081427 0%, #113362 55%, #0f4ba5 100%); 
   color: #fff;
  Acolchado: 32px 8vw 80px; 
+ Acolchado: 24px 6vw 80px; 
 }
 
 .nav {
@@ -50,9 +83,17 @@ Mensajes de texto {
  alinear-ítems: centro; 
  justificar-contenido: espacio-entre; 
  Diferencia: 24px; 
+.top-nav {
+ pantalla: flex; 
+ alinear-ítems: centro; 
+ justificar-contenido: espacio-entre; 
+ Diferencia: 16px; 
+ Envoltura flexible: envolvente; 
 }
 
 .logo {
+ Peso de fuente: 800; 
+ Espaciado entre letras: 1px; 
  Peso de fuente: 800; 
  Espaciado entre letras: 1px; 
 }
@@ -107,6 +148,10 @@ Mensajes de texto {
 
 .ghost:hover {
  color-borde: actualColor; 
+ pantalla: flex; 
+ alinear-ítems: centro; 
+ Diferencia: 16px; 
+ Envoltura flexible: envolvente; 
 }
 
 .hero-content {
@@ -114,26 +159,43 @@ Mensajes de texto {
  cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(280px, 1fr)); 
  Diferencia: 40px; 
  Margen arriba: 60px; 
+ Margen arriba: 64px; 
+ pantalla: cuadrícula; 
+ Diferencia: 32px; 
+ cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(280px, 1fr)); 
+ Alinear-ítems: inicio; 
 }
 
-.ceja { 
+. ceja {   
  transformada de texto: mayúsculas; 
  Espaciado entre letras: 2px; 
  tamaño de fuente: 0,75rem; 
  margen inferior: 12px; 
  opacidad: 0,8; 
+. ceja {  
+ transformada de texto: mayúsculas; 
+ Espaciado entre letras: 2px; 
+ tamaño de fuente: 0,75rem; 
+ margen inferior: 16px; 
+ opacidad: 0,75; 
 }
 
 h1 {
  Tamaño de fuente: pinza (2,2rem, 4VW, 3,5REM); 
  altura de línea: 1,1; 
  margen inferior: 20px; 
+ Tamaño de fuente: Clamp(2.2rem, 4VW, 3.4REM); 
+ altura de línea: 1,1; 
+ margen inferior: 18px; 
 }
 
 .lead {
  tamaño de fuente: 1.1rem; 
  margen inferior: 24px; 
  color: RGB (255, 255, 255, 0,8); 
+ tamaño de fuente: 1.1rem; 
+ margen inferior: 24px; 
+ color: RGBA (255, 255, 255, 0,85); 
 }
 
 .cta-grupo { 
@@ -141,17 +203,29 @@ h1 {
  Envoltura flexible: envolvente; 
  Diferencia: 16px; 
  margen inferior: 32px; 
+.cta-row {  
+ pantalla: flex; 
+ Diferencia: 12px; 
+ Envoltura flexible: envolvente; 
+ margen inferior: 24px; 
 }
 
-.hero-métricas { 
+.hero-metrics {   
  pantalla: cuadrícula; 
  cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(140px, 1fr)); 
  Diferencia: 16px; 
+.hero-metrics {
+ pantalla: cuadrícula; 
+ Diferencia: 12px; 
+ cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(140px, 1fr)); 
 }
 
 .hero-métricas fuertes { 
  tamaño de fuente: 1,5rem; 
  pantalla: bloqueo; 
+.hero-m etrics fuerte {  
+ pantalla: bloqueo; 
+ tamaño de fuente: 1,4rem; 
 }
 
 .hero-panel {
@@ -159,6 +233,10 @@ h1 {
  Radio de frontera: 24px; 
  relleno: 24px; 
  Fondo Filtro: Desenfoque (14px); 
+ antecedentes: RGBA (255, 255, 255, 0,1); 
+ Radio de frontera: 20px; 
+ relleno: 24px; 
+  box-shadow: var(--shadow);
 }
 
 .panel-header {
@@ -167,13 +245,20 @@ h1 {
  alinear-ítems: centro; 
  tamaño de fuente: 0,9rem; 
  margen inferior: 24px; 
+ pantalla: flex; 
+ alinear-ítems: centro; 
+ justificar-contenido: espacio-entre; 
+ margen inferior: 16px; 
 }
 
 .status {
  antecedentes: RGBA (249, 182, 76, 0,2); 
+ antecedentes: RGBA (249, 182, 76, 0,2); 
   color: var(--accent);
   padding: 4px 12px;
  Radio de frontera: 999px; 
+ Radio de frontera: 999px; 
+ tamaño de fuente: 0,85rem; 
 }
 
 .panel-grid {
@@ -192,6 +277,17 @@ h1 {
  acolchado: 16px; 
  pantalla: cuadrícula; 
  Diferencia: 16px; 
+.primaria, 
+.ghost {
+ frontera: ninguna; 
+  padding: 12px 22px;
+ Radio de frontera: 999px; 
+ peso de fuente: 600; 
+  cursor: pointer;
+ transición: 0,2s facilidad; 
+ pantalla: flexión en línea; 
+ alinear-ítems: centro; 
+ justificar-contenido: centro; 
 }
 
 .viewer svg {
@@ -200,6 +296,9 @@ h1 {
  Stroke: #8bc1ff; 
  ancho de recorrido: 3; 
  relleno: rgba (15, 75, 165, 0,15); 
+.primary {
+ Antecedentes: VAR(--primaria); 
+  color: #fff;
 }
 
 .viewer-data {
@@ -207,11 +306,17 @@ h1 {
  cuadrilla-plantillas-columnas: repetir (auto-ajuste, minmax(120px, 1fr)); 
  Diferencia: 12px; 
  tamaño de fuente: 0,9rem; 
+.primary:hover {
+ Antecedentes: #1666d0; 
 }
 
 .viewer-data strong {
  pantalla: bloqueo; 
  tamaño de fuente: 1,4rem; 
+.ghost {
+ Antecedentes: Transparente; 
+ color: heredar; 
+ borde: RGB sólido de 1px (255, 255, 255, 0,4); 
 }
 
 .section {
@@ -221,18 +326,25 @@ h1 {
 .section.dark {
  Antecedentes: var(--oscuro); 
   color: #fff;
+ Acolchado: 80px 6vw; 
 }
 
-.section.light {
+.sección. luzt { 
  Antecedentes: #fdfdff; 
+.sección. alt { 
+ antecedentes: var(--bg-alt); 
 }
 
 .section-title {
  Ancho máximo: 720px; 
  margen inferior: 40px; 
+ Ancho máximo: 820px; 
+ margen inferior: 32px; 
 }
 
 .section-title h2 {
+ Tamaño de fuente: Clamp(1.8rem, 3VW, 2.6REM); 
+ margen inferior: 12px; 
  Tamaño de fuente: Clamp(1.8rem, 3VW, 2.6REM); 
  margen inferior: 12px; 
 }
@@ -241,6 +353,8 @@ h1 {
  pantalla: cuadrícula; 
  cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(220px, 1fr)); 
  Diferencia: 24px; 
+.section-title p {
+  color: var(--muted);
 }
 
 artículo sobre .cards, 
@@ -250,22 +364,37 @@ artículo sobre .cards,
  relleno: 24px; 
  Radio de frontera: 20px; 
   box-shadow: 0 20px 40px rgba(15, 34, 63, 0.08);
+.card {
+ Antecedentes: VAR(--Carta); 
+ relleno: 24px; 
+ Radio de frontera: 20px; 
+  box-shadow: var(--shadow);
+ borde: RGB sólido de 1px (15, 23, 42, 0,04); 
 }
 
-.section.dark .cards artículo { 
-  color: var(--text);
+. section.dark .cards artículo {   
+  color: var(--texto);
+. carta h3 {  
+  margen-fondo: 12px;
 }
 
 .cuadrícula de características { 
  pantalla: cuadrícula; 
  cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(240px, 1fr)); 
  Diferencia: 24px; 
+.carta p { 
+  color: var(--muted);
+ margen inferior: 12px; 
 }
 
-.feature {
+. característica { 
  antecedentes: RGBA (255, 255, 255, 0,08); 
  relleno: 24px; 
  Radio de frontera: 18px; 
+. cuadrícula-dos { 
+ pantalla: cuadrícula; 
+ Diferencia: 24px; 
+ cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(240px, 1fr)); 
 }
 
 .feature ul {
@@ -273,17 +402,31 @@ artículo sobre .cards,
  Margen arriba: 16px; 
  pantalla: cuadrícula; 
  Diferencia: 8px; 
+.wizard {
+ pantalla: cuadrícula; 
+ Diferencia: 24px; 
 }
 
 .feature li::before {
  contenido: "●"; 
   color: var(--accent);
+.wizard-steps {
+ pantalla: flex; 
+ Diferencia: 12px; 
+ Envoltura flexible: envolvente; 
 }
 
 .timeline {
  pantalla: cuadrícula; 
  cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(200px, 1fr)); 
  Diferencia: 24px; 
+.step {
+ borde: 1px sólido var(--borde); 
+ Antecedentes: #fff; 
+  padding: 8px 16px;
+ Radio de frontera: 999px; 
+  cursor: pointer;
+ peso de fuente: 600; 
 }
 
 .timeline .step {
@@ -291,18 +434,24 @@ artículo sobre .cards,
  alinear-ítems: centro; 
  justificar-contenido: centro; 
  Antecedentes: VAR(--primaria); 
+.step.active {
+ Antecedentes: VAR(--primaria); 
   color: #fff;
  Ancho: 40px; 
  Altura: 40px; 
  Radio de frontera: 12px; 
  margen inferior: 12px; 
  Peso de fuente: 700; 
+ color del borde: transparente; 
 }
 
 .experience-grid {
  pantalla: cuadrícula; 
  cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(250px, 1fr)); 
  Diferencia: 24px; 
+.wizard-form {
+ pantalla: cuadrícula; 
+ Diferencia: 20px; 
 }
 
 .upload-box {
@@ -311,6 +460,10 @@ artículo sobre .cards,
  acolchado: 16px; 
  margen: 16px 0; 
  antecedentes: RGBA (31, 124, 255, 0,05); 
+.step-panel {
+ pantalla: ninguna; 
+ Diferencia: 16px; 
+ cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(200px, 1fr)); 
 }
 
 .status-list {
@@ -319,11 +472,18 @@ artículo sobre .cards,
  Margen arriba: 16px; 
  tamaño de fuente: 0,9rem; 
   color: var(--muted);
+.step-panel.active {
+ pantalla: cuadrícula; 
 }
 
 .table-wrapper {
  Overflow-X: Auto; 
  Margen arriba: 16px; 
+etiqueta { 
+ pantalla: cuadrícula; 
+ Diferencia: 8px; 
+ peso de fuente: 600; 
+  color: var(--ink);
 }
 
 table {
@@ -334,9 +494,13 @@ table {
 
 th,
 td {
+entrada, 
+select {
   padding: 10px 12px;
  borde en el fondo: 1px RGB sólido (26, 31, 44, 0,08); 
  alineación de texto: izquierda; 
+ Radio de frontera: 12px; 
+ borde: 1px sólido var(--borde); 
 }
 
 .progress {
@@ -345,6 +509,10 @@ td {
  altura: 12px; 
  desbordamiento: oculto; 
  margen: 16px 0; 
+.wizard-controls {
+ pantalla: flex; 
+ Diferencia: 12px; 
+ contento-justificación: extremo flexible; 
 }
 
 .progress-bar {
@@ -352,6 +520,13 @@ td {
  ancho: 62%; 
  Antecedentes: VAR(--primaria); 
  transición: ancho 0,3s facilidad; 
+.summary-box {
+ antecedentes: RGBA (31, 124, 255, 0,08); 
+ borde: RGB sólido de 1px (31, 124, 255, 0,2); 
+ acolchado: 16px; 
+ Radio de frontera: 16px; 
+  color: var(--primary-dark);
+ peso de fuente: 600; 
 }
 
 .split {
@@ -359,6 +534,9 @@ td {
  cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(260px, 1fr)); 
  Diferencia: 32px; 
  alinear-ítems: centro; 
+.helper {
+ margen arriba: 12px; 
+  color: var(--muted);
 }
 
 .checklist {
@@ -366,33 +544,65 @@ td {
  pantalla: cuadrícula; 
  Diferencia: 10px; 
  margen arriba: 20px; 
+.bim-preview {
+ Antecedentes: #0f172a; 
+  color: #fff;
+ Radio de frontera: 16px; 
+ relleno: 24px; 
+ pantalla: cuadrícula; 
+ Diferencia: 12px; 
 }
 
 .checklist li::antes { 
  contenido: " ✔ "; 
  color: var(--primaria); 
+.bim-grid {
+ antecedentes: gradiente lineal repetitivo( 
+ 0grado, 
+    rgba(255, 255, 255, 0.12) 0,
+ RGBA (255, 255, 255, 0.12) 1px, 
+ transparente 1px, 
+ transparente 24px 
+  );
+ Altura: 140px; 
+ Radio de frontera: 12px; 
 }
 
-.card-highlight {
+. resaltado de cartas { 
  Antecedentes: Gradiente lineal (160°, #fef3dd, #fff); 
  borde: 1px sólido #f6e0b7; 
+. tree { 
+ pantalla: cuadrícula; 
+ Diferencia: 12px; 
 }
 
 .workspace {
  pantalla: cuadrícula; 
  Diferencia: 14 px; 
  Margen: 20px 0; 
+.tree-item {
+ pantalla: cuadrícula; 
+ Diferencia: 6px; 
+ relleno: 12px; 
+ Radio de frontera: 12px; 
+ Antecedentes: RGBA (15, 23, 42, 0,04); 
 }
 
 .workspace span {
  pantalla: bloqueo; 
   color: var(--muted);
  tamaño de fuente: 0,85rem; 
+.flow {
+ pantalla: cuadrícula; 
+ Diferencia: 24px; 
 }
 
-.form {
+. form { 
  pantalla: cuadrícula; 
  Diferencia: 14 px; 
+. calculadora { 
+ pantalla: cuadrícula; 
+ Diferencia: 12px; 
 }
 
 .form input,
@@ -403,11 +613,18 @@ td {
  Radio de frontera: 12px; 
  borde: RGB sólido de 1px (26, 31, 44, 0,2); 
  Margen arriba: 6px; 
+.rules {
+ pantalla: cuadrícula; 
+ Diferencia: 24px; 
+ cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(280px, 1fr)); 
 }
 
-.form-status {
+. form-status { 
  tamaño de fuente: 0,9rem; 
   color: var(--muted);
+. rules-panel { 
+ pantalla: cuadrícula; 
+  Diferencia: 16px;
 }
 
 .spotlight {
@@ -419,6 +636,9 @@ td {
  cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(260px, 1fr)); 
  Diferencia: 32px; 
   box-shadow: 0 30px 60px rgba(15, 34, 63, 0.1);
+.rules-list {
+ pantalla: cuadrícula; 
+ Diferencia: 12px; 
 }
 
 .métricas spotlight { 
@@ -426,11 +646,20 @@ td {
  cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(160px, 1fr)); 
  Diferencia: 16px; 
  Margen Máximo: 24px; 
+.rule-item {
+ borde: 1px sólido var(--borde); 
+ radio de frontera: 14px; 
+ relleno: 12px; 
+  cursor: pointer;
+ Antecedentes: #fff; 
 }
 
-.métricas de foco fuertes { 
+. métricas de foco fuertes {   
  tamaño de fuente: 1,5rem; 
  pantalla: bloqueo; 
+. rule-item.active {  
+ color del borde: var(--primario); 
+  box-shadow: var(--shadow);
 }
 
 .spotlight-card {
@@ -438,6 +667,10 @@ td {
   color: #fff;
  Acolchado: 28px; 
  Radio de frontera: 24px; 
+.estado-regla { 
+ Peso de fuente: 700; 
+ transformada de texto: mayúsculas; 
+ tamaño de fuente: 0,75rem; 
 }
 
 .spotlight-card ul {
@@ -445,11 +678,15 @@ td {
  pantalla: cuadrícula; 
  Diferencia: 10px; 
  Margen arriba: 16px; 
+.rule-status.ok {
+  color: #16a34a;
 }
 
-.carta de destaque li::antes { 
+.resalta la letra li::antes { 
  contenido: "▹"; 
   color: var(--accent);
+.rule-status.warning {
+  color: #f59e0b;
 }
 
 .footer {
@@ -460,23 +697,54 @@ td {
  Diferencia: 24px; 
  Acolchado: 40px 8vw; 
  alinear-ítems: centro; 
+.rule-status.error {
+  color: #ef4444;
 }
 
 .footer-links {
  pantalla: cuadrícula; 
  Diferencia: 8px; 
+.rules-detail {
+ Antecedentes: VAR(--Carta); 
+ Radio de frontera: 20px; 
+ relleno: 24px; 
+ borde: RGB sólido de 1px (15, 23, 42, 0,04); 
+  box-shadow: var(--shadow);
 }
 
 .footer-cta {
  text-align: derecha; 
+.rules-detail pre {
+ Antecedentes: #0b1220; 
+  color: #e2e8f0;
+ acolchado: 16px; 
+ Radio de frontera: 12px; 
+ Overflow-X: Auto; 
+ tamaño de fuente: 0,85rem; 
 }
 
 .footer-cta .ghost {
+.footer {
+ Antecedentes: #050e1c; 
   color: #fff;
  color de borde: RGBA (255, 255, 255, 0,4); 
+ Acolchado: 40px 6vw; 
+ pantalla: cuadrícula; 
+ Diferencia: 16px; 
+ cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(200px, 1fr)); 
 }
 
 .modal {
+ posición: fija; 
+ Insertar: 0; 
+ antecedentes: RGBA (5, 14, 28, 0,7); 
+ pantalla: cuadrícula; 
+ Objetos de lugar: centro; 
+ opacidad: 0; 
+ eventos puntuales: ninguno; 
+ transición: 0,2s facilidad; 
+ relleno: 20px; 
+ Índice Z: 10; 
  posición: fija; 
  inserto: 0; 
  antecedentes: RGBA (5, 14, 28, 0,7); 
@@ -492,11 +760,13 @@ td {
 .modal.active {
  opacidad: 1; 
  Eventos de puntería: Auto; 
+ opacidad: 1; 
+ Eventos de puntería: Auto; 
 }
 
 .modal-content {
  Antecedentes: #fff; 
-  color: var(--text);
+ color: var(--text); 
  Acolchado: 28px; 
  Radio de frontera: 20px; 
  Ancho máximo: 480px; 
@@ -504,9 +774,24 @@ td {
  posición: relativa; 
  pantalla: cuadrícula; 
  Diferencia: 16px; 
+ Antecedentes: #fff; 
+  color: var(--ink);
+ relleno: 24px; 
+ Radio de frontera: 20px; 
+ Ancho máximo: 480px; 
+ ancho: 100%; 
+ pantalla: cuadrícula; 
+ Diferencia: 16px; 
+ posición: relativa; 
 }
 
 .modal-close {
+ posición: absoluta; 
+ Arriba: 16px; 
+ derecha: 16px; 
+ frontera: ninguna; 
+ Antecedentes: Transparente; 
+ tamaño de fuente: 1,4rem; 
  posición: absoluta; 
  Arriba: 16px; 
  derecha: 16px; 
@@ -536,15 +821,24 @@ td {
  Margen: 0 8VW 60px; 
  Acolchado: 40px; 
   }
+.role-grid {
+ pantalla: cuadrícula; 
+ Diferencia: 12px; 
+ cuadrícula-plantillas-columnas: repetir (auto-ajuste, minmax(160px, 1fr)); 
 }
 
 @media (ancho máximo: 720px) { 
+@media (ancho máximo: 720px) {  
   .nav-links {
  dirección flexible: columna; 
  Alinear-elementos: extremo flexible; 
+ ancho: 100%; 
+ Justificar-contenido: Inicio flexible; 
   }
 
-  .footer-cta {
+ . footer-cta { 
  alineación de texto: izquierda; 
+ . wizard-controls { 
+ justificar-contenido: centro; 
   }
 }
