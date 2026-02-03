@@ -15,12 +15,15 @@
 
     <!-- Supabase (opcional) -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
-    <!-- Script principal (module para poder usar import dinámico IFC.js) -->
-    <script type="module" src="script.js"></script>
   </head>
 
   <body>
+    <noscript>
+      <div style="padding:16px;background:#fee2e2;color:#7f1d1d;font-weight:700;">
+        Esta plataforma requiere JavaScript para funcionar.
+      </div>
+    </noscript>
+
     <!-- HERO -->
     <header class="hero" id="home">
       <nav class="top-nav">
@@ -33,9 +36,11 @@
           <a href="#editor" data-tooltip="Ir al editor BIM 3D">Editor BIM</a>
           <a href="#backend" data-tooltip="Ir a persistencia (local y Supabase)">Backend</a>
 
-          <button class="primary"
+          <button
+            class="primary"
             data-action="open-demo"
-            data-tooltip="Abrir modal para elegir rol y comenzar">
+            data-tooltip="Abrir modal para elegir rol y comenzar"
+          >
             Crear mi nave
           </button>
         </div>
@@ -47,21 +52,25 @@
           <h1>Diseñá, calculá y fabricá estructuras metálicas desde la web.</h1>
           <p class="lead">
             RMM STRUCTURES integra un flujo BIM paramétrico con versiones, exportaciones y un
-            visor 3D industrial basado en IFC (estándar abierto).
+            visor 3D industrial (Preview 3D + IFC opcional).
           </p>
 
           <div class="cta-row">
-            <button class="primary"
+            <button
+              class="primary"
               data-action="scroll"
               data-target="#industrial"
-              data-tooltip="Bajar a la vista industrial con visor 3D + paneles">
+              data-tooltip="Bajar a la vista industrial con visor 3D + paneles"
+            >
               Ver plataforma industrial
             </button>
 
-            <button class="ghost"
+            <button
+              class="ghost"
               data-action="scroll"
               data-target="#wizard"
-              data-tooltip="Bajar al asistente paso a paso para generar una nave">
+              data-tooltip="Bajar al asistente paso a paso para generar una nave"
+            >
               Abrir asistente
             </button>
           </div>
@@ -89,25 +98,29 @@
         <div class="hero-panel">
           <div class="panel-header">
             <span class="panel-title">Panel rápido</span>
-            <span class="status" id="app-status">MVP avanzado</span>
+            <span class="status" id="app-status">Industrial</span>
           </div>
 
           <ul class="quick-list">
             <li>Asistente de nave</li>
-            <li>Visor IFC (BIM real)</li>
+            <li>Preview 3D (siempre) + IFC opcional</li>
             <li>Reglas/validaciones</li>
             <li>Versionado local + Supabase</li>
           </ul>
 
           <div class="button-row">
-            <button class="ghost"
+            <button
+              class="ghost"
               data-action="run-rules"
-              data-tooltip="Ejecutar validaciones sobre el modelo actual">
+              data-tooltip="Ejecutar validaciones sobre el modelo actual"
+            >
               Ejecutar validaciones
             </button>
-            <button class="ghost"
+            <button
+              class="ghost"
               data-action="export-bom"
-              data-tooltip="Descargar listado de materiales (BOM) en CSV">
+              data-tooltip="Descargar listado de materiales (BOM) en CSV"
+            >
               Descargar BOM
             </button>
           </div>
@@ -121,7 +134,7 @@
         <div class="section-title">
           <h2>Plataforma diseñada para flujo industrial</h2>
           <p>
-            Objetivo: pasar de parámetros → modelo BIM (IFC) → listados (BOM) → exportaciones.
+            Objetivo: parámetros → modelo (Preview 3D / IFC) → listados (BOM) → exportaciones.
           </p>
         </div>
 
@@ -172,13 +185,11 @@
         </div>
       </section>
 
-      <!-- INDUSTRIAL: PANEL IZQ + VISOR + PANEL DER -->
+      <!-- INDUSTRIAL -->
       <section id="industrial" class="section">
         <div class="section-title">
           <h2>Vista industrial (estilo software de naves)</h2>
-          <p>
-            Panel de parámetros → visor central IFC → panel de tablas. (Como el ejemplo que mostraste).
-          </p>
+          <p>Panel de parámetros → visor central 3D → tablas y validaciones.</p>
         </div>
 
         <div class="industrial-shell">
@@ -225,48 +236,44 @@
               <h3>Acciones</h3>
 
               <div class="button-col">
-                <button class="primary"
+                <button
+                  class="primary"
                   data-action="generate-model"
-                  data-tooltip="Generar el modelo paramétrico y actualizar tablas/visor">
+                  data-tooltip="Generar el modelo paramétrico y actualizar tablas/visor"
+                >
                   Generar modelo
                 </button>
 
-                <label class="file-label" data-tooltip="Cargar un archivo IFC para verlo en el visor">
+                <label class="file-label" data-tooltip="Cargar un archivo IFC para verlo en el visor (si IFC.js está disponible)">
                   Cargar IFC
                   <input id="ifc-file" type="file" accept=".ifc" />
                 </label>
 
-                <button class="ghost"
-                  data-action="reset-viewer"
-                  data-tooltip="Reiniciar el visor 3D a estado inicial">
+                <button class="ghost" data-action="reset-viewer" data-tooltip="Reiniciar el visor 3D a estado inicial">
                   Reiniciar visor
                 </button>
 
-                <button class="ghost"
-                  data-action="export-bom"
-                  data-tooltip="Descargar listado de materiales (BOM) en CSV">
+                <button class="ghost" data-action="export-bom" data-tooltip="Descargar listado de materiales (BOM) en CSV">
                   Exportar BOM (CSV)
                 </button>
 
-                <button class="ghost"
-                  data-action="export-json"
-                  data-tooltip="Descargar el modelo (JSON) para versionado o backend">
+                <button class="ghost" data-action="export-json" data-tooltip="Descargar el modelo (JSON) para versionado o backend">
                   Exportar JSON
                 </button>
               </div>
 
-              <p class="helper" id="ifc-status">Visor listo. Podés cargar un IFC.</p>
+              <p class="helper" id="ifc-status">Preview listo. Generá un modelo para verlo.</p>
             </div>
           </aside>
 
           <!-- VISOR CENTRAL -->
           <section class="industrial-view">
             <div class="viewer-topbar">
-              <span class="viewer-title">Visor BIM (IFC)</span>
+              <span class="viewer-title">Visor 3D (Preview / IFC)</span>
               <span class="status" id="viewer-status">Sin archivo</span>
             </div>
 
-            <div id="ifc-viewer" class="ifc-viewer" aria-label="Visor IFC"></div>
+            <div id="ifc-viewer" class="ifc-viewer" aria-label="Visor 3D"></div>
 
             <div class="viewer-footer">
               <div class="viewer-kpis">
@@ -284,9 +291,7 @@
                 </div>
               </div>
 
-              <button class="ghost"
-                data-action="run-rules"
-                data-tooltip="Ejecutar reglas de validación sobre el modelo actual">
+              <button class="ghost" data-action="run-rules" data-tooltip="Ejecutar reglas de validación sobre el modelo actual">
                 Validar modelo
               </button>
             </div>
@@ -436,7 +441,7 @@
       <section id="editor" class="section">
         <div class="section-title">
           <h2>Editor BIM 3D</h2>
-          <p>En esta fase usamos el visor IFC como base. Luego se suma edición por elemento.</p>
+          <p>En esta fase usamos el visor 3D como base. Luego se suma edición por elemento.</p>
         </div>
 
         <div class="grid-two">
@@ -458,9 +463,7 @@
 
           <article class="card">
             <h3>Propiedades / Selección</h3>
-            <p class="helper">
-              Próximo paso: árbol BIM, selección de elementos IFC y panel de propiedades.
-            </p>
+            <p class="helper">Próximo paso: árbol BIM, selección de elementos IFC y panel de propiedades.</p>
           </article>
         </div>
       </section>
@@ -501,7 +504,7 @@
 
           <article class="card">
             <h3>Supabase Free (opcional)</h3>
-            <p class="helper">Usa el schema `supabase_schema.sql` para crear tablas y RLS.</p>
+            <p class="helper">Usa el schema <code>supabase_schema.sql</code> para crear tablas y RLS.</p>
 
             <div class="grid-two">
               <label>
@@ -574,5 +577,9 @@
         <p class="helper" id="role-status">Seleccioná un rol para continuar.</p>
       </div>
     </div>
+
+    <!-- ✅ Script principal al final para asegurar que el DOM exista -->
+    <!-- ✅ Cache-bust para GitHub Pages (cambiá el número cuando actualices) -->
+    <script type="module" src="./script.js?v=2026-02-03-3"></script>
   </body>
 </html>
