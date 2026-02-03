@@ -1,9 +1,8 @@
-// script.js (ES Module) — RMM STRUCTURES (GitHub Pages friendly)
-// ✅ Visor 3D SIEMPRE funciona (Three.js + OrbitControls por CDN jsDelivr)
-// ✅ Preview paramétrico: columnas + techo (plano / 1 agua / 2 aguas)
-// ✅ Correas: SEGMENTADAS entre pórticos + siguiendo pendiente + separación real (m)
-// ✅ BOM + reglas + versionado local + Supabase opcional
-// ⚠️ IFC real: requiere bundling (Vite + ifc.js). En GH Pages sin bundler suele fallar.
+// script.js (ES Module)
+
+// ✅ Usa importmap del index.html
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 const qs = (sel, parent = document) => parent.querySelector(sel);
 const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
@@ -11,19 +10,20 @@ const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
 const state = {
   session: null,
   role: null,
-  model: null,
+  model: null, // modelo paramétrico (JSON)
   version: 0,
 
-  // three viewer
-  three: null,
-  scene: null,
-  camera: null,
-  renderer: null,
-  controls: null,
-  viewerReady: false,
-  animId: null,
-
-  wizardStep: 1,
+  // visor Three.js
+  three: {
+    ready: false,
+    container: null,
+    renderer: null,
+    scene: null,
+    camera: null,
+    controls: null,
+    animId: null,
+    root: null, // Group con el modelo
+  },
 };
 
 // -------------------- UTILIDADES --------------------
@@ -37,6 +37,9 @@ function fmt(n) {
     return String(n);
   }
 }
+function nowISO() {
+  return new Date().toISOString();
+}
 function downloadText(filename, text, mime = "text/plain") {
   const blob = new Blob([text], { type: `${mime};charset=utf-8` });
   const a = document.createElement("a");
@@ -44,9 +47,6 @@ function downloadText(filename, text, mime = "text/plain") {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
-}
-function nowISO() {
-  return new Date().toISOString();
 }
 
 // -------------------- TOOLTIP ACCESSIBLE --------------------
@@ -96,8 +96,7 @@ function bindModals() {
     const btn = e.target.closest('[data-action="select-role"]');
     if (!btn) return;
     state.role = btn.getAttribute("data-role");
-    const rs = qs("#role-status");
-    if (rs) rs.textContent = `Rol seleccionado: ${state.role}. Podés continuar con el asistente o la vista industrial.`;
+    qs("#role-status").textContent = `Rol seleccionado: ${state.role}. Podés continuar con el asistente o la vista industrial.`;
     closeModal(qs("#demo-modal"));
   });
 }
@@ -125,7 +124,6 @@ function rolePermissions(role) {
 }
 function renderPermissions(role) {
   const ul = qs("#auth-permissions");
-  if (!ul) return;
   ul.innerHTML = "";
   rolePermissions(role).forEach((p) => {
     const li = document.createElement("li");
@@ -144,21 +142,17 @@ function bindAuth() {
     state.session = { email, role, at: nowISO() };
     state.role = role;
 
-    const st = qs("#auth-status");
-    if (st) st.textContent = `Sesión demo activa: ${email} (${role})`;
+    qs("#auth-status").textContent = `Sesión demo activa: ${email} (${role})`;
     renderPermissions(role);
   });
 
   document.addEventListener("click", (e) => {
     const btn = e.target.closest('[data-action="logout"]');
     if (!btn) return;
-
     state.session = null;
     state.role = null;
-    const st = qs("#auth-status");
-    if (st) st.textContent = "Sin sesión activa.";
-    const ul = qs("#auth-permissions");
-    if (ul) ul.innerHTML = "";
+    qs("#auth-status").textContent = "Sin sesión activa.";
+    qs("#auth-permissions").innerHTML = "";
   });
 
   document.addEventListener("click", async (e) => {
@@ -168,8 +162,6 @@ function bindAuth() {
     const status = qs("#auth-supabase-status");
     const url = qs("#supabase-url")?.value?.trim();
     const key = qs("#supabase-key")?.value?.trim();
-    if (!status) return;
-
     if (!url || !key || !window.supabase) {
       status.textContent = "Supabase Auth sin configurar (cargá URL y ANON KEY en Backend).";
       return;
@@ -201,54 +193,51 @@ function bindWizard() {
     state.wizardStep = step;
   }
 
-  steps.forEach((b) => b.addEventListener("click", () => goStep(Number(b.dataset.step))));
+  steps.forEach((b) => {
+    b.addEventListener("click", () => goStep(Number(b.dataset.step)));
+  });
 
   document.addEventListener("click", (e) => {
     const next = e.target.closest('[data-action="next"]');
     const prev = e.target.closest('[data-action="prev"]');
-    if (next) goStep(state.wizardStep + 1);
-    if (prev) goStep(state.wizardStep - 1);
+    if (next) goStep((state.wizardStep || 1) + 1);
+    if (prev) goStep((state.wizardStep || 1) - 1);
   });
 
   form.addEventListener("input", () => {
     const fd = new FormData(form);
     const data = Object.fromEntries(fd.entries());
     const summary = qs("#wizard-summary");
-    if (!summary) return;
-
-    summary.innerHTML = `
-      <div><strong>Tipo:</strong> ${data.tipo || "-"}</div>
-      <div><strong>Ubicación:</strong> ${data.ubicacion || "-"}</div>
-      <div><strong>Ancho:</strong> ${data.ancho || "-"} m</div>
-      <div><strong>Largo:</strong> ${data.largo || "-"} m</div>
-      <div><strong>Altura:</strong> ${data.altura || "-"} m</div>
-      <div><strong>Pórticos:</strong> ${data.porticos || "-"}</div>
-      <div><strong>Pórtico:</strong> ${data.portico || "-"}</div>
-      <div><strong>Perfil:</strong> ${data.perfil || "-"}</div>
-      <div><strong>Cubierta:</strong> ${data.cubierta || "-"}</div>
-      <div><strong>Cerramiento:</strong> ${data.cerramiento || "-"}</div>
-    `;
+    if (summary) {
+      summary.innerHTML = `
+        <div><strong>Tipo:</strong> ${data.tipo || "-"}</div>
+        <div><strong>Ubicación:</strong> ${data.ubicacion || "-"}</div>
+        <div><strong>Ancho:</strong> ${data.ancho || "-"} m</div>
+        <div><strong>Largo:</strong> ${data.largo || "-"} m</div>
+        <div><strong>Altura:</strong> ${data.altura || "-"} m</div>
+        <div><strong>Pórticos:</strong> ${data.porticos || "-"}</div>
+        <div><strong>Pórtico:</strong> ${data.portico || "-"}</div>
+        <div><strong>Perfil:</strong> ${data.perfil || "-"}</div>
+        <div><strong>Cubierta:</strong> ${data.cubierta || "-"}</div>
+        <div><strong>Cerramiento:</strong> ${data.cerramiento || "-"}</div>
+      `;
+    }
   });
 
-  form.addEventListener("submit", async (e) => {
+  form.addEventListener("submit", (e) => {
     e.preventDefault();
     const fd = new FormData(form);
     const data = Object.fromEntries(fd.entries());
 
     setIndustrialInputsFromWizard(data);
 
+    // Generar modelo + BOM + KPIs + Preview 3D
     generateModelFromIndustrial();
     renderBOMFromModel();
     refreshKPIs();
     runRules();
 
-    await renderParametricPreview();
-
-    const ifcStatus = qs("#ifc-status");
-    if (ifcStatus) ifcStatus.textContent = "Modelo generado. Vista 3D actualizada.";
-
-    const wz = qs("#wizard-status");
-    if (wz) wz.textContent = "Modelo generado. Revisá la vista industrial.";
+    qs("#wizard-status").textContent = "Modelo generado. Revisá la vista industrial.";
     qs("#industrial")?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
 }
@@ -269,28 +258,25 @@ function setIndustrialInputsFromWizard(data) {
 
 // -------------------- INDUSTRIAL CONTROLS --------------------
 function updateIndustrialLabels() {
-  const s = qs("#ind-span");
-  const l = qs("#ind-length");
-  const h = qs("#ind-height");
-  const f = qs("#ind-frames");
-
-  if (qs("#ind-span-value") && s) qs("#ind-span-value").textContent = s.value;
-  if (qs("#ind-length-value") && l) qs("#ind-length-value").textContent = l.value;
-  if (qs("#ind-height-value") && h) qs("#ind-height-value").textContent = h.value;
-  if (qs("#ind-frames-value") && f) qs("#ind-frames-value").textContent = f.value;
+  qs("#ind-span-value").textContent = qs("#ind-span").value;
+  qs("#ind-length-value").textContent = qs("#ind-length").value;
+  qs("#ind-height-value").textContent = qs("#ind-height").value;
+  qs("#ind-frames-value").textContent = qs("#ind-frames").value;
 }
-
 function bindIndustrialControls() {
   ["#ind-span", "#ind-length", "#ind-height", "#ind-frames", "#ind-roof"].forEach((id) => {
     const el = qs(id);
     if (!el) return;
-    el.addEventListener("input", updateIndustrialLabels);
-    el.addEventListener("change", updateIndustrialLabels);
+    el.addEventListener("input", () => {
+      updateIndustrialLabels();
+      // preview en vivo si ya hay modelo
+      if (state.model) renderParametricPreview();
+    });
   });
 
   updateIndustrialLabels();
 
-  document.addEventListener("click", async (e) => {
+  document.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
 
@@ -301,13 +287,13 @@ function bindIndustrialControls() {
       renderBOMFromModel();
       refreshKPIs();
       runRules();
-      await renderParametricPreview();
     }
 
     if (action === "export-bom") exportBOM();
     if (action === "export-json") exportJSON();
     if (action === "run-rules") runRules();
     if (action === "reset-viewer") resetViewer();
+
     if (action === "save-local") saveLocalVersion();
     if (action === "load-local") loadLocalVersion();
     if (action === "connect-supabase") connectSupabase();
@@ -315,19 +301,13 @@ function bindIndustrialControls() {
     if (action === "load-remote") loadRemoteVersion();
   });
 
-  // IFC input (en GH Pages sin bundler no lo cargamos: aviso)
   const ifcInput = qs("#ifc-file");
   if (ifcInput) {
     ifcInput.addEventListener("change", async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
-      const ifcStatus = qs("#ifc-status");
-      const viewerStatus = qs("#viewer-status");
-      if (ifcStatus) {
-        ifcStatus.textContent =
-          "Carga IFC: en GitHub Pages sin empaquetado suele fallar. Para IFC real: Vite + ifc.js. (Preview paramétrico OK).";
-      }
-      if (viewerStatus) viewerStatus.textContent = "Preview 3D";
+      // Por ahora dejamos mensaje (IFC real -> próxima etapa con bundler/ifc.js)
+      qs("#ifc-status").textContent = `IFC (${file.name}) todavía no se parsea en GitHub Pages sin empaquetado. Usá el preview 3D.`;
     });
   }
 }
@@ -340,55 +320,50 @@ function generateModelFromIndustrial() {
   const frames = Number(qs("#ind-frames")?.value || 10);
   const roof = qs("#ind-roof")?.value || "dos_aguas";
 
-  // ✅ para correas: separación real (m) (si no existe el input en el HTML, usa 1.50m)
-  const purlinSpacing = Number(qs("#ind-purlin-spacing")?.value) || 1.5;
-
   state.version += 1;
 
   const model = {
     meta: { createdAt: nowISO(), version: state.version, unit: "m", source: "RMM Industrial UI" },
-    building: { type: "nave", roof, span, length, height, frames, purlinSpacing },
+    building: { type: "nave", roof, span, length, height, frames },
     elements: [],
   };
 
-  // BOM demo
+  // Elementos simplificados para BOM (no cálculo real)
   for (let i = 0; i < frames; i++) {
     model.elements.push({ id: `COL-L-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
     model.elements.push({ id: `COL-R-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
 
-    if (roof === "dos_aguas") {
-      model.elements.push({ id: `RAF-L-${i + 1}`, type: "viga", qty: 1, length: span / 2, weightKg: (span / 2) * 55 });
-      model.elements.push({ id: `RAF-R-${i + 1}`, type: "viga", qty: 1, length: span / 2, weightKg: (span / 2) * 55 });
-    } else {
+    // vigas / cabios depende del tipo de cubierta (BOM demo)
+    if (roof === "plana") {
       model.elements.push({ id: `BEAM-${i + 1}`, type: "viga", qty: 1, length: span, weightKg: span * 55 });
+    } else if (roof === "una_agua") {
+      model.elements.push({ id: `RAFTER-${i + 1}`, type: "cabio", qty: 1, length: span * 1.05, weightKg: span * 48 });
+    } else {
+      model.elements.push({ id: `RAFTER-L-${i + 1}`, type: "cabio", qty: 1, length: (span / 2) * 1.08, weightKg: span * 28 });
+      model.elements.push({ id: `RAFTER-R-${i + 1}`, type: "cabio", qty: 1, length: (span / 2) * 1.08, weightKg: span * 28 });
+      model.elements.push({ id: `RIDGE-${i + 1}`, type: "cumbrera", qty: 1, length: 0.2, weightKg: 8 });
     }
   }
 
-  // correas BOM demo (segmentadas entre pórticos)
-  const stepZ = frames > 1 ? length / (frames - 1) : length;
-  const roofLineLen = roof === "dos_aguas" ? span / 2 : span;
-  const purlinsPerSlope = Math.max(2, Math.ceil(roofLineLen / purlinSpacing));
-  const runs = roof === "dos_aguas" ? 2 : 1;
-  const totalSegments = Math.max(0, frames - 1) * purlinsPerSlope * runs;
-
+  // Correas (cantidad aproximada, por pendiente)
+  const approxPurlinLines = Math.max(6, Math.round(span / 2.2));
   model.elements.push({
     id: `PURLINS`,
     type: "correas",
-    qty: totalSegments,
-    length: stepZ,
-    weightKg: totalSegments * 6,
+    qty: approxPurlinLines * Math.max(1, frames - 1), // por tramo entre pórticos
+    length: Math.max(1, length / Math.max(1, frames - 1)),
+    weightKg: approxPurlinLines * Math.max(1, frames - 1) * 12,
   });
 
   state.model = model;
 
-  const kv = qs("#kpi-version");
-  if (kv) kv.textContent = String(state.version);
+  qs("#geometry-status").textContent = "Geometría calculada (modelo paramétrico).";
+  qs("#kpi-version").textContent = String(state.version);
 
-  const gs = qs("#geometry-status");
-  if (gs) gs.textContent = "Geometría calculada (modelo paramétrico).";
+  qs("#ifc-status").textContent = "Modelo generado. Preview 3D actualizado.";
+  qs("#viewer-status").textContent = "Preview activo";
 
-  const is = qs("#ifc-status");
-  if (is) is.textContent = "Modelo generado. Vista 3D actualizada.";
+  renderParametricPreview();
 }
 
 function computeTotals(model) {
@@ -397,13 +372,10 @@ function computeTotals(model) {
   const weight = elements.reduce((acc, e) => acc + (Number(e.weightKg) || 0), 0);
   return { count, weight };
 }
-
 function refreshKPIs() {
   const { count, weight } = computeTotals(state.model);
-  const ke = qs("#kpi-elements");
-  const kw = qs("#kpi-weight");
-  if (ke) ke.textContent = fmt(count);
-  if (kw) kw.textContent = fmt(Math.round(weight));
+  qs("#kpi-elements").textContent = fmt(count);
+  qs("#kpi-weight").textContent = fmt(Math.round(weight));
 }
 
 // -------------------- BOM TABLE --------------------
@@ -427,33 +399,30 @@ function renderBOMFromModel() {
 
   const rows = [...map.values()].sort((a, b) => a.type.localeCompare(b.type));
   tbody.innerHTML = rows
-    .map(
-      (r) => `
+    .map((r) => {
+      return `
       <tr>
         <td>${r.type}</td>
         <td>${fmt(r.qty)}</td>
         <td>${fmt(Math.round(r.weightKg))}</td>
         <td>OK</td>
       </tr>
-    `
-    )
+    `;
+    })
     .join("");
 }
 
 // -------------------- EXPORTS --------------------
 function exportJSON() {
   if (!state.model) {
-    const st = qs("#ifc-status");
-    if (st) st.textContent = "No hay modelo para exportar.";
+    qs("#ifc-status").textContent = "No hay modelo para exportar.";
     return;
   }
   downloadText(`rmm_model_v${state.version}.json`, JSON.stringify(state.model, null, 2), "application/json");
 }
-
 function exportBOM() {
   if (!state.model) {
-    const st = qs("#ifc-status");
-    if (st) st.textContent = "No hay modelo para exportar.";
+    qs("#ifc-status").textContent = "No hay modelo para exportar.";
     return;
   }
 
@@ -476,7 +445,6 @@ function exportBOM() {
 function rule(id, name, ok, msg) {
   return { id, name, ok: Boolean(ok), msg: msg || "" };
 }
-
 function runRules() {
   const summary = qs("#rules-summary");
   const list = qs("#rules-list");
@@ -495,7 +463,6 @@ function runRules() {
   results.push(rule("R2", "Cantidad de pórticos", b.frames >= 4 && b.frames <= 24, "Cantidad de pórticos fuera de rango."));
   results.push(rule("R3", "Relación esbeltez (demo)", b.height / b.span <= 1.0, "Altura muy grande respecto a la luz (revisar)."));
   results.push(rule("R4", "Elementos generados", (state.model.elements?.length || 0) > 0, "No se generaron elementos."));
-  results.push(rule("R5", "Separación correas (demo)", b.purlinSpacing >= 0.9 && b.purlinSpacing <= 2.5, "Separación de correas fuera de rango (demo)."));
 
   const ok = results.filter((r) => r.ok).length;
   summary.textContent = `Validaciones: ${ok}/${results.length} OK`;
@@ -513,298 +480,266 @@ function runRules() {
     .join("");
 }
 
-// -------------------- THREE VIEWER (GitHub Pages robusto) --------------------
-async function ensureThreeViewer() {
-  if (state.viewerReady) return true;
+// -------------------- THREE VIEWER --------------------
+function ensureThreeViewer() {
+  if (state.three.ready) return;
 
   const container = qs("#ifc-viewer");
-  const status = qs("#viewer-status");
-  if (!container) return false;
+  if (!container) return;
 
-  try {
-    const THREE = await import("https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js");
-    const { OrbitControls } = await import(
-      "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/controls/OrbitControls.js"
-    );
+  state.three.container = container;
 
-    // limpiar container
-    container.innerHTML = "";
-    container.style.position = "relative";
+  // limpiar por si hay texto previo
+  container.innerHTML = "";
+  container.style.position = "relative";
 
-    const w = container.clientWidth || 900;
-    const h = Math.max(420, container.clientHeight || 520);
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  container.appendChild(renderer.domElement);
 
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0b1220);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0b1220);
 
-    const camera = new THREE.PerspectiveCamera(55, w / h, 0.1, 2000);
-    camera.position.set(25, 18, 35);
+  const camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 2000);
+  camera.position.set(30, 22, 50);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.target.set(0, 6, 20);
+
+  // grid + axes
+  const grid = new THREE.GridHelper(300, 60, 0x334155, 0x1f2937);
+  grid.position.y = 0;
+  scene.add(grid);
+
+  const axes = new THREE.AxesHelper(6);
+  axes.position.set(0, 0.01, 0);
+  scene.add(axes);
+
+  // lights
+  const amb = new THREE.AmbientLight(0xffffff, 0.65);
+  scene.add(amb);
+
+  const dir = new THREE.DirectionalLight(0xffffff, 0.95);
+  dir.position.set(80, 120, 40);
+  scene.add(dir);
+
+  state.three.renderer = renderer;
+  state.three.scene = scene;
+  state.three.camera = camera;
+  state.three.controls = controls;
+
+  // root group
+  state.three.root = new THREE.Group();
+  state.three.root.name = "RMM_ROOT";
+  scene.add(state.three.root);
+
+  const onResize = () => {
+    if (!state.three.container) return;
+    const w = state.three.container.clientWidth;
+    const h = state.three.container.clientHeight;
     renderer.setSize(w, h);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    container.appendChild(renderer.domElement);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  };
 
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
+  window.addEventListener("resize", onResize);
 
-    // luces
-    const amb = new THREE.AmbientLight(0xffffff, 0.65);
-    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-    dir.position.set(30, 40, 25);
-    scene.add(amb, dir);
+  const animate = () => {
+    state.three.animId = requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+  };
+  animate();
 
-    // grilla
-    const grid = new THREE.GridHelper(200, 40, 0x334155, 0x1f2937);
-    grid.position.y = 0;
-    scene.add(grid);
-
-    // ejes
-    const axes = new THREE.AxesHelper(8);
-    scene.add(axes);
-
-    state.three = THREE;
-    state.scene = scene;
-    state.camera = camera;
-    state.renderer = renderer;
-    state.controls = controls;
-    state.viewerReady = true;
-
-    if (status) status.textContent = "Preview 3D";
-
-    // resize observer
-    const ro = new ResizeObserver(() => {
-      if (!state.viewerReady) return;
-      const cw = container.clientWidth || 900;
-      const ch = Math.max(420, container.clientHeight || 520);
-      state.camera.aspect = cw / ch;
-      state.camera.updateProjectionMatrix();
-      state.renderer.setSize(cw, ch);
-    });
-    ro.observe(container);
-
-    // loop
-    const animate = () => {
-      state.animId = requestAnimationFrame(animate);
-      state.controls.update();
-      state.renderer.render(state.scene, state.camera);
-    };
-    animate();
-
-    return true;
-  } catch (err) {
-    container.innerHTML = `
-      <div style="padding:16px;color:#e2e8f0;font-weight:700;">
-        No se pudo cargar Three.js desde CDN.<br/>
-        <span style="font-weight:400;color:#94a3b8;">
-          Motivo: ${String(err?.message || err)}
-        </span>
-      </div>
-    `;
-    if (status) status.textContent = "Error";
-    return false;
-  }
+  state.three.ready = true;
 }
 
 function resetViewer() {
-  if (state.scene && state.three) {
-    const old = state.scene.getObjectByName("RMM_PREVIEW");
-    if (old) state.scene.remove(old);
-  }
-  const vs = qs("#viewer-status");
-  const is = qs("#ifc-status");
-  if (vs) vs.textContent = "Preview 3D";
-  if (is) is.textContent = "Visor reiniciado. Podés generar un modelo (preview 3D).";
+  // limpia solo el modelo (mantiene visor)
+  ensureThreeViewer();
+  if (!state.three.root) return;
+
+  // borrar hijos
+  while (state.three.root.children.length) state.three.root.remove(state.three.root.children[0]);
+
+  qs("#viewer-status").textContent = "Listo";
+  qs("#ifc-status").textContent = "Visor reiniciado. Generá un modelo para ver el 3D.";
 }
 
-// -------------------- PREVIEW PARAMÉTRICO 3D --------------------
-function clearPreviewGroup() {
-  if (!state.scene) return;
-  const old = state.scene.getObjectByName("RMM_PREVIEW");
-  if (old) state.scene.remove(old);
-}
-
-function addOrientedBox(T, group, p0, p1, thickness, material) {
-  const dir = new T.Vector3().subVectors(p1, p0);
+// -------------------- GEOMETRÍA: MIEMBROS + CORREAS --------------------
+function addMember(group, start, end, size, material) {
+  const dir = new THREE.Vector3().subVectors(end, start);
   const len = dir.length();
-  if (len <= 1e-6) return;
+  if (len < 1e-6) return;
 
-  const geo = new T.BoxGeometry(len, thickness, thickness);
-  const mesh = new T.Mesh(geo, material);
+  const geo = new THREE.BoxGeometry(size, size, len);
+  const mesh = new THREE.Mesh(geo, material);
 
-  const mid = new T.Vector3().addVectors(p0, p1).multiplyScalar(0.5);
+  // orientar: Box está “en Z”, entonces rotamos para apuntar a dir
+  const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
   mesh.position.copy(mid);
 
-  const axisX = new T.Vector3(1, 0, 0);
-  const q = new T.Quaternion().setFromUnitVectors(axisX, dir.clone().normalize());
+  const zAxis = new THREE.Vector3(0, 0, 1);
+  const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.clone().normalize());
   mesh.setRotationFromQuaternion(q);
 
   group.add(mesh);
 }
 
-function fitCameraToObject(obj) {
-  const T = state.three;
-  if (!T || !state.camera || !state.controls) return;
-
-  const box = new T.Box3().setFromObject(obj);
-  const size = box.getSize(new T.Vector3());
-  const center = box.getCenter(new T.Vector3());
-
-  const maxDim = Math.max(size.x, size.y, size.z);
-  const dist = maxDim * 1.6 + 10;
-
-  state.camera.position.set(center.x + dist, center.y + dist * 0.55, center.z + dist);
-  state.controls.target.copy(center);
-  state.controls.update();
-}
-
-async function renderParametricPreview() {
+function renderParametricPreview() {
   if (!state.model) return;
 
-  const ok = await ensureThreeViewer();
-  if (!ok) return;
+  ensureThreeViewer();
+  const root = state.three.root;
+  if (!root) return;
 
-  const T = state.three;
-  const scene = state.scene;
+  // limpiar anterior
+  while (root.children.length) root.remove(root.children[0]);
 
-  clearPreviewGroup();
+  const b = state.model.building;
+  const { span, length, height, frames, roof } = b;
 
-  const group = new T.Group();
+  // materiales
+  const matCol = new THREE.MeshStandardMaterial({ color: 0x3b82f6, metalness: 0.2, roughness: 0.6 });
+  const matRafter = new THREE.MeshStandardMaterial({ color: 0xf9b64c, metalness: 0.2, roughness: 0.55 });
+  const matPurlin = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.1, roughness: 0.75 });
+
+  const group = new THREE.Group();
   group.name = "RMM_PREVIEW";
-
-  const { span, length, height, frames, roof, purlinSpacing } = state.model.building;
+  root.add(group);
 
   const halfSpan = span / 2;
   const stepZ = frames > 1 ? length / (frames - 1) : length;
 
-  const colSize = Math.max(0.14, span * 0.006);
-  const beamSize = Math.max(0.12, span * 0.005);
+  // tamaños visuales (no perfiles reales)
+  const colSize = Math.max(0.12, span * 0.006);
+  const rafterSize = Math.max(0.10, span * 0.005);
+  const purlinSize = Math.max(0.07, span * 0.0038);
 
-  const matCol = new T.MeshStandardMaterial({ color: 0x3b82f6, metalness: 0.2, roughness: 0.6 });
-  const matBeam = new T.MeshStandardMaterial({ color: 0xf9b64c, metalness: 0.2, roughness: 0.6 });
+  // pendiente: tomamos una pendiente “típica” visual (10% a 20%)
+  // (la normativa la define por clima/uso, esto es para preview)
+  const slope = 0.15; // rise/run
+  const riseAtHalf = halfSpan * slope; // para dos aguas
+  const riseAtFull = span * slope; // para una agua
 
-  const colGeo = new T.BoxGeometry(colSize, height, colSize);
+  // helper: altura del techo en una posición X
+  function roofY(x) {
+    if (roof === "plana") return height;
+    if (roof === "una_agua") {
+      // sube desde -halfSpan (bajo) a +halfSpan (alto)
+      const t = (x + halfSpan) / span; // 0..1
+      return height + t * riseAtFull;
+    }
+    // dos aguas: sube hasta cumbrera en x=0
+    const ax = Math.abs(x);
+    const t = 1 - ax / halfSpan; // 0 en alero, 1 en cumbrera
+    return height + t * riseAtHalf;
+  }
 
-  const ridgeHeight = height + span * 0.25; // dos aguas (visual)
-  const topHeight = height + span * 0.2;    // una agua (visual)
-
-  // ---- PÓRTICOS ----
+  // 1) PORTICOS
   for (let i = 0; i < frames; i++) {
     const z = i * stepZ;
 
-    const colL = new T.Mesh(colGeo, matCol);
-    colL.position.set(-halfSpan, height / 2, z);
-    group.add(colL);
+    const baseL = new THREE.Vector3(-halfSpan, 0, z);
+    const topL = new THREE.Vector3(-halfSpan, height, z);
 
-    const colR = new T.Mesh(colGeo, matCol);
-    colR.position.set(+halfSpan, height / 2, z);
-    group.add(colR);
+    const baseR = new THREE.Vector3(halfSpan, 0, z);
+    const topR = new THREE.Vector3(halfSpan, height, z);
 
-    if (roof === "dos_aguas") {
-      const pL = new T.Vector3(-halfSpan, height, z);
-      const pR = new T.Vector3(+halfSpan, height, z);
-      const pC = new T.Vector3(0, ridgeHeight, z);
+    // columnas
+    addMember(group, baseL, topL, colSize, matCol);
+    addMember(group, baseR, topR, colSize, matCol);
 
-      addOrientedBox(T, group, pL, pC, beamSize, matBeam);
-      addOrientedBox(T, group, pC, pR, beamSize, matBeam);
-
-      const node = new T.Mesh(new T.SphereGeometry(Math.max(0.12, beamSize * 0.55), 12, 12), matBeam);
-      node.position.set(0, ridgeHeight, z);
-      group.add(node);
-
+    // cubierta por tipo
+    if (roof === "plana") {
+      const beamL = new THREE.Vector3(-halfSpan, height, z);
+      const beamR = new THREE.Vector3(halfSpan, height, z);
+      addMember(group, beamL, beamR, rafterSize, matRafter);
     } else if (roof === "una_agua") {
-      const p0 = new T.Vector3(-halfSpan, height, z);
-      const p1 = new T.Vector3(+halfSpan, topHeight, z);
-      addOrientedBox(T, group, p0, p1, beamSize, matBeam);
-
+      const yL = roofY(-halfSpan);
+      const yR = roofY(halfSpan);
+      const eaveL = new THREE.Vector3(-halfSpan, yL, z);
+      const eaveR = new THREE.Vector3(halfSpan, yR, z);
+      addMember(group, eaveL, eaveR, rafterSize, matRafter);
     } else {
-      const p0 = new T.Vector3(-halfSpan, height, z);
-      const p1 = new T.Vector3(+halfSpan, height, z);
-      addOrientedBox(T, group, p0, p1, beamSize, matBeam);
+      // dos aguas: dos cabios hasta cumbrera
+      const ridge = new THREE.Vector3(0, roofY(0), z);
+      const eaveL = new THREE.Vector3(-halfSpan, roofY(-halfSpan), z);
+      const eaveR = new THREE.Vector3(halfSpan, roofY(halfSpan), z);
+      addMember(group, eaveL, ridge, rafterSize, matRafter);
+      addMember(group, ridge, eaveR, rafterSize, matRafter);
     }
   }
 
-  // ---- CORREAS segmentadas entre pórticos + siguiendo pendiente ----
-  const matPurlin = new T.MeshStandardMaterial({ color: 0x8bc1ff, metalness: 0.2, roughness: 0.6 });
-  const purlinSize = Math.max(0.06, span * 0.003);
-  const segGeo = new T.BoxGeometry(purlinSize, purlinSize, stepZ);
+  // 2) CORREAS: POR TRAMO ENTRE PORTICOS (no continuas)
+  // criterio: varias “líneas” de correa a lo largo de la pendiente, y cada una se dibuja entre z_i y z_{i+1}
+  const maxLinesPerSlope = Math.max(5, Math.round(span / 3.0));
+  const lines = clamp(maxLinesPerSlope, 5, 16);
 
-  const spacing = Number(purlinSpacing) || 1.5;
-
-  function lerp(a, b, t) {
-    return a + (b - a) * t;
-  }
-  function addPurlinSegment(x, y, z0, z1) {
-    const seg = new T.Mesh(segGeo, matPurlin);
-    seg.position.set(x, y, (z0 + z1) / 2);
-    group.add(seg);
-  }
-
-  if (roof === "dos_aguas") {
-    const slopeLen = Math.sqrt(halfSpan ** 2 + (ridgeHeight - height) ** 2);
-    const count = Math.max(2, Math.ceil(slopeLen / spacing));
-
-    for (let i = 0; i < frames - 1; i++) {
-      const z0 = i * stepZ;
-      const z1 = (i + 1) * stepZ;
-
-      // faldón izquierdo
-      for (let k = 0; k < count; k++) {
-        const t = k / (count - 1);
-        const x = lerp(-halfSpan, 0, t);
-        const y = lerp(height, ridgeHeight, t);
-        addPurlinSegment(x, y, z0, z1);
-      }
-      // faldón derecho
-      for (let k = 0; k < count; k++) {
-        const t = k / (count - 1);
-        const x = lerp(0, halfSpan, t);
-        const y = lerp(ridgeHeight, height, t);
-        addPurlinSegment(x, y, z0, z1);
-      }
+  // posiciones X donde van las líneas de correas
+  let xLines = [];
+  if (roof === "plana") {
+    // correas distribuidas sobre todo el ancho
+    for (let k = 0; k <= lines; k++) {
+      const t = k / lines; // 0..1
+      xLines.push(-halfSpan + t * span);
     }
-
   } else if (roof === "una_agua") {
-    const slopeLen = Math.sqrt(span ** 2 + (topHeight - height) ** 2);
-    const count = Math.max(2, Math.ceil(slopeLen / spacing));
-
-    for (let i = 0; i < frames - 1; i++) {
-      const z0 = i * stepZ;
-      const z1 = (i + 1) * stepZ;
-
-      for (let k = 0; k < count; k++) {
-        const t = k / (count - 1);
-        const x = lerp(-halfSpan, halfSpan, t);
-        const y = lerp(height, topHeight, t);
-        addPurlinSegment(x, y, z0, z1);
-      }
+    for (let k = 0; k <= lines; k++) {
+      const t = k / lines;
+      xLines.push(-halfSpan + t * span);
     }
-
   } else {
-    const count = Math.max(2, Math.ceil(span / spacing));
+    // dos aguas: correas por cada faldón (sin duplicar cerca de cumbrera)
+    const perSide = Math.max(3, Math.floor(lines / 2));
+    for (let k = 0; k <= perSide; k++) {
+      const t = k / perSide; // 0..1 desde alero a cumbrera
+      const x = -halfSpan + t * (halfSpan);
+      xLines.push(x);
+    }
+    for (let k = 0; k <= perSide; k++) {
+      const t = k / perSide;
+      const x = halfSpan - t * (halfSpan);
+      xLines.push(x);
+    }
+    // opcional: línea exacta en cumbrera
+    xLines.push(0);
+    // limpiar duplicados casi iguales
+    xLines = [...new Set(xLines.map((v) => v.toFixed(4)))].map(Number).sort((a, b) => a - b);
+  }
 
-    for (let i = 0; i < frames - 1; i++) {
-      const z0 = i * stepZ;
-      const z1 = (i + 1) * stepZ;
+  // dibujar correas por tramo entre pórticos
+  for (let i = 0; i < frames - 1; i++) {
+    const z0 = i * stepZ;
+    const z1 = (i + 1) * stepZ;
 
-      for (let k = 0; k < count; k++) {
-        const t = k / (count - 1);
-        const x = lerp(-halfSpan, halfSpan, t);
-        const y = height;
-        addPurlinSegment(x, y, z0, z1);
-      }
+    for (const x of xLines) {
+      const y = roofY(x);
+
+      const p0 = new THREE.Vector3(x, y, z0);
+      const p1 = new THREE.Vector3(x, y, z1);
+
+      addMember(group, p0, p1, purlinSize, matPurlin);
     }
   }
 
-  scene.add(group);
+  // encuadre cámara
+  const box = new THREE.Box3().setFromObject(group);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
 
-  const vs = qs("#viewer-status");
-  const is = qs("#ifc-status");
-  if (vs) vs.textContent = "Preview 3D";
-  if (is) is.textContent = `Preview 3D actualizado (${roof}). Correas: sep ${spacing} m (tramo entre pórticos).`;
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const dist = maxDim * 1.2;
 
-  fitCameraToObject(group);
+  state.three.controls.target.copy(center);
+  state.three.camera.position.set(center.x + dist, center.y + dist * 0.6, center.z + dist);
+  state.three.camera.lookAt(center);
+
+  qs("#viewer-status").textContent = "Preview activo";
+  qs("#ifc-status").textContent = `Preview 3D: ${roof.replace("_", " ")} | pórticos: ${frames} | correas por tramo.`;
 }
 
 // -------------------- VERSIONADO LOCAL --------------------
@@ -814,9 +749,8 @@ function localKey() {
 }
 
 function saveLocalVersion() {
-  const st = qs("#persistence-status");
   if (!state.model) {
-    if (st) st.textContent = "No hay modelo para guardar.";
+    qs("#persistence-status").textContent = "No hay modelo para guardar.";
     return;
   }
 
@@ -826,24 +760,22 @@ function saveLocalVersion() {
   current.unshift(entry);
   localStorage.setItem(key, JSON.stringify(current.slice(0, 50)));
 
-  if (st) st.textContent = `Versión guardada localmente (v${state.version}).`;
+  qs("#persistence-status").textContent = `Versión guardada localmente (v${state.version}).`;
   renderLocalVersions();
 }
 
 function loadLocalVersion() {
-  const st = qs("#persistence-status");
   const key = localKey();
   const current = JSON.parse(localStorage.getItem(key) || "[]");
   if (!current.length) {
-    if (st) st.textContent = "No hay versiones guardadas.";
+    qs("#persistence-status").textContent = "No hay versiones guardadas.";
     return;
   }
-
   const latest = current[0];
   state.model = latest.model;
   state.version = latest.version || state.version;
 
-  if (st) st.textContent = `Versión cargada (v${state.version}).`;
+  qs("#persistence-status").textContent = `Versión cargada (v${state.version}).`;
   renderBOMFromModel();
   refreshKPIs();
   runRules();
@@ -954,16 +886,13 @@ async function loadRemoteVersion() {
   }
 
   try {
-    const { data, error } = await supa
-      .from("project_versions")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(1);
+    const { data, error } = await supa.from("project_versions").select("*").order("created_at", { ascending: false }).limit(1);
 
     if (error) {
       status.textContent = `Error: ${error.message}`;
       return;
     }
+
     if (!data?.length) {
       status.textContent = "No hay versiones en Supabase.";
       return;
@@ -984,7 +913,7 @@ async function loadRemoteVersion() {
 }
 
 // -------------------- INIT --------------------
-async function init() {
+function init() {
   enhanceTooltips();
   bindModals();
   bindScrollButtons();
@@ -992,8 +921,7 @@ async function init() {
   bindWizard();
   bindIndustrialControls();
 
-  await ensureThreeViewer();
-
+  ensureThreeViewer(); // deja el visor listo
   renderPermissions(null);
   renderBOMFromModel();
   refreshKPIs();
@@ -1001,6 +929,4 @@ async function init() {
   renderLocalVersions();
 }
 
-window.addEventListener("DOMContentLoaded", () => {
-  init();
-});
+window.addEventListener("DOMContentLoaded", init);
