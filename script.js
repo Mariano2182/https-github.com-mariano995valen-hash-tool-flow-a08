@@ -1,643 +1,749 @@
-/* RMM STRUCTURES - MVP avanzado (Offline + 3D configurador + BOM + costo + export) */
+// script.js (ES Module)
+
+const qs = (sel, parent = document) => parent.querySelector(sel);
+const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
 
 const state = {
   session: null,
-  permissions: [],
-  config: {
-    roofType: "2aguas",
-    span: 24,
-    length: 40,
-    colH: 4.5,
-    roofH: 2.0,
-    frames: 8,
-    steel: "S275",
-  },
-  bom: [],
-  supabase: {
-    client: null,
-    url: "",
-    anonKey: "",
-  },
-  ui: {
-    gridOn: true,
-  },
+  role: null,
+  model: null, // nuestro modelo paramétrico (JSON)
+  version: 0,
+  ifcViewer: null,
+  ifcLoaded: false,
 };
 
-/* -------------------------
-  Helpers
-------------------------- */
-const $ = (sel) => document.querySelector(sel);
-const fmt = (n, d = 0) => Number(n).toLocaleString("es-AR", { maximumFractionDigits: d });
-
-function clamp(n, min, max) {
-  return Math.max(min, Math.min(max, n));
+// -------------------- UTILIDADES --------------------
+function clamp(n, a, b) {
+  return Math.max(a, Math.min(b, n));
 }
 
-/* -------------------------
-  Demo Roles (offline)
-------------------------- */
-const ROLE_PERMS = {
-  Cliente: ["ver_modelo", "ver_bom", "export_csv"],
-  Ingeniero: ["ver_modelo", "ver_bom", "export_csv", "ver_reglas", "editar_parametros"],
-  Fabricador: ["ver_modelo", "ver_bom", "export_csv", "ver_reglas", "export_dstv_demo"],
-  Admin: ["*"],
-};
-
-function setSession(email, role) {
-  state.session = { email, role };
-  state.permissions = ROLE_PERMS[role] || [];
-  $("#auth-status").textContent = `Sesión activa: ${email} (${role})`;
-  renderPermissions();
-}
-
-function clearSession() {
-  state.session = null;
-  state.permissions = [];
-  $("#auth-status").textContent = "Sin sesión activa.";
-  renderPermissions();
-}
-
-function hasPerm(p) {
-  if (state.permissions.includes("*")) return true;
-  return state.permissions.includes(p);
-}
-
-function renderPermissions() {
-  const ul = $("#auth-permissions");
-  ul.innerHTML = "";
-  if (!state.session) {
-    ul.innerHTML = `<li>Iniciá sesión demo para ver permisos.</li>`;
-    return;
-  }
-  const perms = state.permissions.includes("*") ? ["Acceso total"] : state.permissions;
-  perms.forEach((p) => {
-    const li = document.createElement("li");
-    li.textContent = `✓ ${p}`;
-    ul.appendChild(li);
-  });
-}
-
-/* -------------------------
-  Modal
-------------------------- */
-function openModal(id) {
-  const m = document.getElementById(id);
-  if (!m) return;
-  m.classList.add("active");
-  m.setAttribute("aria-hidden", "false");
-}
-function closeModal(id) {
-  const m = document.getElementById(id);
-  if (!m) return;
-  m.classList.remove("active");
-  m.setAttribute("aria-hidden", "true");
-}
-
-/* -------------------------
-  Configurador BOM (estimación)
-  Nota: es un modelo demo para vender el flujo (no cálculo real).
-------------------------- */
-function buildBOM(cfg) {
-  // Suposición simple de pórtico tipo marco:
-  // - 2 columnas por pórtico
-  // - 2 vigas inclinadas (o 1 viga si 1 agua)
-  // - correas longitudinales: aproximación por líneas
-  const frames = cfg.frames;
-  const span = cfg.span;
-  const len = cfg.length;
-  const colH = cfg.colH;
-  const roofH = cfg.roofH;
-
-  // Aproximación: longitud por viga inclinada
-  const halfSpan = span / 2;
-  const beamLen = Math.sqrt(halfSpan * halfSpan + roofH * roofH);
-
-  // Conteos
-  const colQty = frames * 2;
-  const beamQty = cfg.roofType === "2aguas" ? frames * 2 : frames * 1;
-
-  // Correas (purlins): cada 1.5m en techo, a lo largo de la nave
-  const purlinLines = Math.max(2, Math.round(beamLen / 1.5));
-  const purlinQty = purlinLines * (cfg.roofType === "2aguas" ? 2 : 1); // por faldón
-  const purlinEachLen = len; // a lo largo de la nave
-
-  // Longitudes totales
-  const colTotalLen = colQty * colH;
-  const beamTotalLen = beamQty * beamLen;
-  const purlinTotalLen = purlinQty * purlinEachLen;
-
-  // Pesos aproximados kg/m (demo)
-  const steelFactor = cfg.steel === "S355" ? 1.02 : 1.0;
-  const kgm_column = 42 * steelFactor; // demo
-  const kgm_beam = 57 * steelFactor;   // demo
-  const kgm_purlin = 18 * steelFactor; // demo
-
-  const items = [
-    { name: "Columnas", qty: colQty, lenEach: colH, totalLen: colTotalLen, kgm: kgm_column },
-    { name: "Vigas techo", qty: beamQty, lenEach: beamLen, totalLen: beamTotalLen, kgm: kgm_beam },
-    { name: "Correas", qty: purlinQty, lenEach: purlinEachLen, totalLen: purlinTotalLen, kgm: kgm_purlin },
-  ];
-
-  items.forEach((it) => {
-    it.weightKg = it.totalLen * it.kgm;
-  });
-
-  const totalWeight = items.reduce((a, b) => a + b.weightKg, 0);
-
-  return { items, totalWeight };
-}
-
-function renderBOM(bom) {
-  const tbody = $("#elementsTable");
-  tbody.innerHTML = "";
-
-  bom.items.forEach((it) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${it.name}</td>
-      <td>${fmt(it.qty)}</td>
-      <td>${fmt(it.totalLen, 1)} m</td>
-      <td>${fmt(it.weightKg, 0)} kg</td>
-    `;
-    tbody.appendChild(tr);
-  });
-
-  $("#kpiFrames").textContent = fmt(state.config.frames);
-  $("#kpiLen").textContent = `${fmt(state.config.length)} m`;
-  $("#kpiWeight").textContent = `${fmt(bom.totalWeight, 0)} kg`;
-}
-
-/* -------------------------
-  Export BOM CSV
-------------------------- */
-function exportCSV(bom) {
-  const rows = [
-    ["Elemento", "Cantidad", "Longitud_total_m", "Peso_kg"].join(","),
-    ...bom.items.map((it) => [it.name, it.qty, it.totalLen.toFixed(2), it.weightKg.toFixed(0)].join(",")),
-    ["TOTAL", "", "", bom.totalWeight.toFixed(0)].join(","),
-  ];
-  const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `RMM_BOM_${Date.now()}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-/* -------------------------
-  Costeo
-------------------------- */
-function calcCostUSD(bom, priceKg, coefFab, coefMont) {
-  const mat = bom.totalWeight * priceKg;
-  const fab = mat * coefFab;
-  const mont = mat * coefMont;
-  return { mat, fab, mont, total: mat + fab + mont };
-}
-
-/* -------------------------
-  Reglas demo
-------------------------- */
-function runRules(cfg, bom) {
-  const out = [];
-
-  // R1
-  out.push({
-    id: "R1",
-    title: "Rangos mínimos",
-    status: cfg.span >= 10 && cfg.length >= 20 ? "OK" : "ERROR",
-    detail: `Luz=${cfg.span} (>=10), Longitud=${cfg.length} (>=20)`,
-  });
-
-  // R2
-  const spacing = cfg.length / Math.max(1, cfg.frames - 1);
-  out.push({
-    id: "R2",
-    title: "Separación entre pórticos (demo)",
-    status: spacing >= 3 && spacing <= 8 ? "OK" : "WARNING",
-    detail: `Separación ≈ ${fmt(spacing, 2)} m (recomendado 3–8 m).`,
-  });
-
-  // R3
-  out.push({
-    id: "R3",
-    title: "Peso estimado",
-    status: bom.totalWeight > 0 ? "OK" : "ERROR",
-    detail: `Peso total ≈ ${fmt(bom.totalWeight, 0)} kg.`,
-  });
-
-  return out;
-}
-
-function renderRules(rules) {
-  const list = $("#rulesList");
-  list.innerHTML = "";
-  rules.forEach((r) => {
-    const btn = document.createElement("button");
-    btn.className = "ghost";
-    btn.style.justifyContent = "space-between";
-    btn.style.width = "100%";
-    btn.innerHTML = `<span>${r.id} — ${r.title}</span><strong>${r.status}</strong>`;
-    btn.addEventListener("click", () => {
-      $("#rulesDetail").textContent = `${r.id} — ${r.title}\nEstado: ${r.status}\n\n${r.detail}`;
-    });
-    list.appendChild(btn);
-  });
-
-  const summary = rules.map((r) => r.status);
-  const hasErr = summary.includes("ERROR");
-  const hasWarn = summary.includes("WARNING");
-  $("#rulesSummary").textContent = hasErr ? "Hay errores." : hasWarn ? "Hay advertencias." : "Todo OK.";
-}
-
-/* -------------------------
-  Three.js (visor 3D)
-------------------------- */
-let renderer, scene, camera, controls;
-let modelGroup;
-let gridHelper;
-
-function init3D() {
-  const canvas = $("#scene");
-
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0b1220);
-
-  camera = new THREE.PerspectiveCamera(55, 1, 0.1, 2000);
-  camera.position.set(40, 22, 55);
-
-  controls = new THREE.OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
-
-  const amb = new THREE.AmbientLight(0xffffff, 0.75);
-  scene.add(amb);
-
-  const dir = new THREE.DirectionalLight(0xffffff, 0.85);
-  dir.position.set(40, 80, 20);
-  scene.add(dir);
-
-  gridHelper = new THREE.GridHelper(200, 50, 0x334155, 0x1f2937);
-  scene.add(gridHelper);
-
-  modelGroup = new THREE.Group();
-  scene.add(modelGroup);
-
-  resize3D();
-  rebuild3D(state.config);
-
-  window.addEventListener("resize", () => {
-    resize3D();
-  });
-
-  animate();
-}
-
-function resize3D() {
-  const wrap = $(".canvas-wrap");
-  const w = wrap.clientWidth;
-  const h = wrap.clientHeight;
-
-  renderer.setSize(w, h, false);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
-}
-
-function clearGroup(g) {
-  while (g.children.length) {
-    const c = g.children.pop();
-    c.geometry?.dispose?.();
-    c.material?.dispose?.();
-  }
-}
-
-function rebuild3D(cfg) {
-  clearGroup(modelGroup);
-
-  // Materiales
-  const matFrame = new THREE.MeshStandardMaterial({ color: 0x7dd3fc, metalness: 0.2, roughness: 0.45 });
-  const matCols  = new THREE.MeshStandardMaterial({ color: 0xa78bfa, metalness: 0.2, roughness: 0.45 });
-  const matBase  = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.0, roughness: 0.9 });
-
-  const span = cfg.span;
-  const length = cfg.length;
-  const colH = cfg.colH;
-  const roofH = cfg.roofH;
-  const frames = cfg.frames;
-
-  const halfSpan = span / 2;
-  const spacing = length / Math.max(1, frames - 1);
-
-  // Escala visual
-  const th = 0.12; // espesor visual
-
-  // Bases (simple)
-  const baseGeo = new THREE.BoxGeometry(0.9, 0.4, 0.9);
-
-  // Columnas
-  const colGeo = new THREE.BoxGeometry(th, colH, th);
-
-  // Vigas
-  const beamLen = Math.sqrt(halfSpan * halfSpan + roofH * roofH);
-  const beamGeo = new THREE.BoxGeometry(beamLen, th, th);
-
-  for (let i = 0; i < frames; i++) {
-    const z = -length / 2 + i * spacing;
-
-    // bases
-    const b1 = new THREE.Mesh(baseGeo, matBase);
-    b1.position.set(-halfSpan, 0.2, z);
-    modelGroup.add(b1);
-
-    const b2 = new THREE.Mesh(baseGeo, matBase);
-    b2.position.set(halfSpan, 0.2, z);
-    modelGroup.add(b2);
-
-    // columnas
-    const c1 = new THREE.Mesh(colGeo, matCols);
-    c1.position.set(-halfSpan, colH / 2, z);
-    modelGroup.add(c1);
-
-    const c2 = new THREE.Mesh(colGeo, matCols);
-    c2.position.set(halfSpan, colH / 2, z);
-    modelGroup.add(c2);
-
-    // techo
-    if (cfg.roofType === "2aguas") {
-      // viga izquierda
-      const bl = new THREE.Mesh(beamGeo, matFrame);
-      bl.position.set(-halfSpan / 2, colH + roofH / 2, z);
-      bl.rotation.z = Math.atan2(roofH, halfSpan);
-      modelGroup.add(bl);
-
-      // viga derecha
-      const br = new THREE.Mesh(beamGeo, matFrame);
-      br.position.set(halfSpan / 2, colH + roofH / 2, z);
-      br.rotation.z = -Math.atan2(roofH, halfSpan);
-      modelGroup.add(br);
-    } else {
-      // una agua: una viga desde -halfSpan a +halfSpan con pendiente
-      const fullLen = Math.sqrt(span * span + roofH * roofH);
-      const bg = new THREE.BoxGeometry(fullLen, th, th);
-      const b = new THREE.Mesh(bg, matFrame);
-      b.position.set(0, colH + roofH / 2, z);
-      b.rotation.z = -Math.atan2(roofH, span);
-      modelGroup.add(b);
-    }
-  }
-
-  $("#cfgStatus").textContent = `Modelo generado. Separación aprox: ${fmt(spacing, 2)} m`;
-}
-
-/* -------------------------
-  Persistencia local (versiones)
-------------------------- */
-function localKey() {
-  return "rmm_versions_v1";
-}
-
-function loadLocalVersions() {
+function fmt(n) {
   try {
-    return JSON.parse(localStorage.getItem(localKey()) || "[]");
+    return Number(n).toLocaleString("es-AR");
   } catch {
-    return [];
+    return String(n);
   }
 }
 
-function saveLocalVersions(list) {
-  localStorage.setItem(localKey(), JSON.stringify(list));
+function downloadText(filename, text, mime = "text/plain") {
+  const blob = new Blob([text], { type: `${mime};charset=utf-8` });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
-function renderLocalVersions() {
-  const list = loadLocalVersions();
-  const box = $("#localVersions");
-  box.innerHTML = "";
-  if (!list.length) {
-    box.innerHTML = `<div class="version-item"><strong>Sin versiones</strong><small>Guardá una versión local.</small></div>`;
-    return;
-  }
-  list.slice().reverse().slice(0, 8).forEach((v) => {
-    const div = document.createElement("div");
-    div.className = "version-item";
-    div.innerHTML = `<strong>${v.name}</strong><small>${new Date(v.ts).toLocaleString("es-AR")}</small>`;
-    div.addEventListener("click", () => {
-      state.config = { ...v.config };
-      syncControlsFromState();
-      recomputeAll(true);
-      $("#localStatus").textContent = `Cargada versión: ${v.name}`;
-    });
-    box.appendChild(div);
+function nowISO() {
+  return new Date().toISOString();
+}
+
+// -------------------- TOOLTIP ACCESSIBLE (extra) --------------------
+// Ya los tooltips se muestran por CSS con data-tooltip.
+// Esto solo agrega aria-label si falta (mejora accesibilidad).
+function enhanceTooltips() {
+  qsa("[data-tooltip]").forEach((el) => {
+    if (!el.getAttribute("aria-label")) {
+      el.setAttribute("aria-label", el.getAttribute("data-tooltip"));
+    }
   });
 }
 
-function localSave() {
-  const list = loadLocalVersions();
-  const name = `Nave ${state.config.span}x${state.config.length} (${state.config.frames} pórticos)`;
-  list.push({ ts: Date.now(), name, config: { ...state.config } });
-  saveLocalVersions(list);
-  renderLocalVersions();
-  $("#localStatus").textContent = "Versión guardada (local).";
+// -------------------- MODAL --------------------
+function openModal(id) {
+  const modal = qs(`#${id}`);
+  if (!modal) return;
+  modal.classList.add("active");
+  modal.setAttribute("aria-hidden", "false");
 }
 
-function localLoadLast() {
-  const list = loadLocalVersions();
-  const last = list[list.length - 1];
-  if (!last) {
-    $("#localStatus").textContent = "No hay versiones.";
-    return;
-  }
-  state.config = { ...last.config };
-  syncControlsFromState();
-  recomputeAll(true);
-  $("#localStatus").textContent = `Cargada última versión: ${last.name}`;
+function closeModal(modal) {
+  modal.classList.remove("active");
+  modal.setAttribute("aria-hidden", "true");
 }
 
-/* -------------------------
-  Supabase (opcional)
-------------------------- */
-function sbConnect() {
-  const url = ($("#sbUrl").value || "").trim();
-  const key = ($("#sbKey").value || "").trim();
-
-  if (!url || !key) {
-    $("#sbStatus").textContent = "Completá URL y ANON KEY.";
-    return;
-  }
-
-  try {
-    state.supabase.client = window.supabase.createClient(url, key);
-    state.supabase.url = url;
-    state.supabase.anonKey = key;
-    $("#sbStatus").textContent = "Conectado (cliente creado).";
-  } catch (e) {
-    $("#sbStatus").textContent = "Error conectando Supabase.";
-  }
-}
-
-// Nota: guardar/cargar real requiere sesión auth.uid() válida.
-// Esto queda como “hook” para la etapa B.
-async function sbSave() {
-  if (!state.supabase.client) return ($("#sbStatus").textContent = "Conectá Supabase primero.");
-  $("#sbStatus").textContent = "Para guardar real necesitás login Supabase (etapa B).";
-}
-async function sbLoad() {
-  if (!state.supabase.client) return ($("#sbStatus").textContent = "Conectá Supabase primero.");
-  $("#sbStatus").textContent = "Para cargar real necesitás login Supabase (etapa B).";
-}
-
-/* -------------------------
-  UI bindings
-------------------------- */
-function syncOutputs() {
-  $("#spanOut").textContent = state.config.span;
-  $("#lengthOut").textContent = state.config.length;
-  $("#colHOut").textContent = state.config.colH;
-  $("#roofHOut").textContent = state.config.roofH;
-  $("#framesOut").textContent = state.config.frames;
-}
-
-function syncControlsFromState() {
-  $("#roofType").value = state.config.roofType;
-  $("#span").value = state.config.span;
-  $("#length").value = state.config.length;
-  $("#colH").value = state.config.colH;
-  $("#roofH").value = state.config.roofH;
-  $("#frames").value = state.config.frames;
-  $("#steel").value = state.config.steel;
-  syncOutputs();
-}
-
-function recomputeAll(rebuild3d = false) {
-  syncOutputs();
-
-  const bom = buildBOM(state.config);
-  state.bom = bom;
-
-  renderBOM(bom);
-  if (rebuild3d) rebuild3D(state.config);
-}
-
-function bindConfigurator() {
-  // inputs
-  $("#roofType").addEventListener("change", (e) => { state.config.roofType = e.target.value; recomputeAll(true); });
-  $("#span").addEventListener("input", (e) => { state.config.span = Number(e.target.value); recomputeAll(true); });
-  $("#length").addEventListener("input", (e) => { state.config.length = Number(e.target.value); recomputeAll(true); });
-  $("#colH").addEventListener("input", (e) => { state.config.colH = Number(e.target.value); recomputeAll(true); });
-  $("#roofH").addEventListener("input", (e) => { state.config.roofH = Number(e.target.value); recomputeAll(true); });
-  $("#frames").addEventListener("input", (e) => { state.config.frames = Number(e.target.value); recomputeAll(true); });
-  $("#steel").addEventListener("change", (e) => { state.config.steel = e.target.value; recomputeAll(false); });
-
-  // actions
-  document.body.addEventListener("click", async (e) => {
+function bindModals() {
+  // open by action
+  document.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
 
     const action = btn.getAttribute("data-action");
+    if (action === "open-demo") {
+      openModal("demo-modal");
+    }
+    if (action === "close-modal" && btn.closest(".modal")) {
+      closeModal(btn.closest(".modal"));
+    }
+  });
 
-    if (action === "scroll") {
-      const target = btn.getAttribute("data-target");
-      document.querySelector(target)?.scrollIntoView({ behavior: "smooth" });
+  // close buttons
+  qsa("[data-close]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const modal = btn.closest(".modal");
+      if (modal) closeModal(modal);
+    });
+  });
+
+  // close when click outside
+  qsa(".modal").forEach((m) => {
+    m.addEventListener("click", (e) => {
+      if (e.target === m) closeModal(m);
+    });
+  });
+
+  // role selection
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest('[data-action="select-role"]');
+    if (!btn) return;
+    state.role = btn.getAttribute("data-role");
+    qs("#role-status").textContent = `Rol seleccionado: ${state.role}. Podés continuar con el asistente o la vista industrial.`;
+    closeModal(qs("#demo-modal"));
+  });
+}
+
+// -------------------- NAV SCROLL --------------------
+function bindScrollButtons() {
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest('[data-action="scroll"]');
+    if (!btn) return;
+    const target = btn.getAttribute("data-target");
+    if (!target) return;
+    const el = qs(target);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
+
+// -------------------- AUTH (DEMO) --------------------
+function rolePermissions(role) {
+  const base = ["Ver proyecto", "Descargar BOM", "Ver validaciones"];
+  if (role === "Cliente") return base;
+  if (role === "Ingeniero") return [...base, "Editar parámetros", "Ejecutar validaciones"];
+  if (role === "Fabricador") return [...base, "Exportar archivos", "Marcar estados de fabricación"];
+  if (role === "Admin") return [...base, "Gestionar usuarios", "Gestionar catálogos", "Todo"];
+  return base;
+}
+
+function renderPermissions(role) {
+  const ul = qs("#auth-permissions");
+  ul.innerHTML = "";
+  rolePermissions(role).forEach((p) => {
+    const li = document.createElement("li");
+    li.textContent = `• ${p}`;
+    ul.appendChild(li);
+  });
+}
+
+function bindAuth() {
+  const form = qs("#auth-form");
+  if (!form) return;
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const email = qs("#auth-email").value.trim();
+    const role = qs("#auth-role").value;
+    state.session = { email, role, at: nowISO() };
+    state.role = role;
+
+    qs("#auth-status").textContent = `Sesión demo activa: ${email} (${role})`;
+    renderPermissions(role);
+  });
+
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest('[data-action="logout"]');
+    if (!btn) return;
+
+    state.session = null;
+    state.role = null;
+    qs("#auth-status").textContent = "Sin sesión activa.";
+    qs("#auth-permissions").innerHTML = "";
+  });
+
+  // Magic link (opcional)
+  document.addEventListener("click", async (e) => {
+    const btn = e.target.closest('[data-action="magic-link"]');
+    if (!btn) return;
+
+    const status = qs("#auth-supabase-status");
+    const url = qs("#supabase-url")?.value?.trim();
+    const key = qs("#supabase-key")?.value?.trim();
+    if (!url || !key || !window.supabase) {
+      status.textContent = "Supabase Auth sin configurar (cargá URL y ANON KEY en Backend).";
+      return;
     }
 
-    if (action === "open-demo") openModal("demo-modal");
-    if (action === "close-modal") closeModal("demo-modal");
+    try {
+      const client = window.supabase.createClient(url, key);
+      const email = qs("#auth-email").value.trim();
+      const { error } = await client.auth.signInWithOtp({ email });
+      status.textContent = error ? `Error: ${error.message}` : "Magic link enviado (revisá tu email).";
+    } catch (err) {
+      status.textContent = `Error: ${err?.message || err}`;
+    }
+  });
+}
 
-    if (action === "rebuild") recomputeAll(true);
-    if (action === "export-bom") exportCSV(state.bom);
+// -------------------- WIZARD --------------------
+function bindWizard() {
+  const form = qs("#wizard-form");
+  if (!form) return;
 
-    if (action === "calc-cost") {
-      const priceKg = Number($("#priceKg").value);
-      const coefFab = Number($("#coefFab").value);
-      const coefMont = Number($("#coefMont").value);
+  const steps = qsa(".wizard-steps .step");
+  const panels = qsa(".wizard-form .step-panel");
 
-      const c = calcCostUSD(state.bom, priceKg, coefFab, coefMont);
-      $("#costBox").innerHTML = `
-        <div class="kpi"><span>Material</span><strong>USD ${fmt(c.mat, 0)}</strong></div>
-        <div class="kpi"><span>Fabricación</span><strong>USD ${fmt(c.fab, 0)}</strong></div>
-        <div class="kpi"><span>Montaje</span><strong>USD ${fmt(c.mont, 0)}</strong></div>
-        <hr style="border:none;border-top:1px solid rgba(15,23,42,0.12);margin:10px 0;">
-        <div class="kpi"><span>Total</span><strong>USD ${fmt(c.total, 0)}</strong></div>
+  function goStep(n) {
+    const step = clamp(n, 1, 4);
+    steps.forEach((b) => b.classList.toggle("active", b.dataset.step === String(step)));
+    panels.forEach((p) => p.classList.toggle("active", p.dataset.step === String(step)));
+    state.wizardStep = step;
+  }
+
+  steps.forEach((b) => {
+    b.addEventListener("click", () => goStep(Number(b.dataset.step)));
+  });
+
+  document.addEventListener("click", (e) => {
+    const next = e.target.closest('[data-action="next"]');
+    const prev = e.target.closest('[data-action="prev"]');
+    if (next) goStep(state.wizardStep + 1);
+    if (prev) goStep(state.wizardStep - 1);
+  });
+
+  form.addEventListener("input", () => {
+    const fd = new FormData(form);
+    const data = Object.fromEntries(fd.entries());
+    const summary = qs("#wizard-summary");
+    if (summary) {
+      summary.innerHTML = `
+        <div><strong>Tipo:</strong> ${data.tipo || "-"}</div>
+        <div><strong>Ubicación:</strong> ${data.ubicacion || "-"}</div>
+        <div><strong>Ancho:</strong> ${data.ancho || "-"} m</div>
+        <div><strong>Largo:</strong> ${data.largo || "-"} m</div>
+        <div><strong>Altura:</strong> ${data.altura || "-"} m</div>
+        <div><strong>Pórticos:</strong> ${data.porticos || "-"}</div>
+        <div><strong>Pórtico:</strong> ${data.portico || "-"}</div>
+        <div><strong>Perfil:</strong> ${data.perfil || "-"}</div>
+        <div><strong>Cubierta:</strong> ${data.cubierta || "-"}</div>
+        <div><strong>Cerramiento:</strong> ${data.cerramiento || "-"}</div>
       `;
     }
-
-    if (action === "run-rules") {
-      const rules = runRules(state.config, state.bom);
-      renderRules(rules);
-    }
-
-    if (action === "reset-camera") {
-      camera.position.set(40, 22, 55);
-      controls.target.set(0, 6, 0);
-      controls.update();
-    }
-
-    if (action === "toggle-grid") {
-      state.ui.gridOn = !state.ui.gridOn;
-      gridHelper.visible = state.ui.gridOn;
-    }
-
-    if (action === "local-save") localSave();
-    if (action === "local-load") localLoadLast();
-
-    if (action === "sb-connect") sbConnect();
-    if (action === "sb-save") sbSave();
-    if (action === "sb-load") sbLoad();
-
-    if (action === "logout") clearSession();
-    if (action === "magic-link") {
-      $("#auth-supabase-status").textContent = "Magic link requiere configurar Supabase y auth real (etapa B).";
-    }
   });
 
-  // auth demo submit
-  $("#auth-form").addEventListener("submit", (e) => {
+  form.addEventListener("submit", (e) => {
     e.preventDefault();
-    const email = $("#auth-email").value.trim();
-    const role = $("#auth-role").value;
-    if (!email) return;
-    setSession(email, role);
-  });
+    const fd = new FormData(form);
+    const data = Object.fromEntries(fd.entries());
 
-  // demo form
-  $("#demo-form").addEventListener("submit", (e) => {
-    e.preventDefault();
-    $("#demo-status").textContent = "Enviado (demo). Te vamos a contactar.";
-    setTimeout(() => closeModal("demo-modal"), 800);
+    // Actualizamos sliders de vista industrial con lo del wizard
+    setIndustrialInputsFromWizard(data);
+
+    // Generamos modelo base
+    generateModelFromIndustrial();
+
+    qs("#wizard-status").textContent = "Modelo generado. Revisá la vista industrial.";
+    qs("#industrial")?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
 }
 
-/* -------------------------
-  Animation loop
-------------------------- */
-function animate() {
-  requestAnimationFrame(animate);
-  controls.update();
-  renderer.render(scene, camera);
+function setIndustrialInputsFromWizard(data) {
+  const span = qs("#ind-span");
+  const length = qs("#ind-length");
+  const height = qs("#ind-height");
+  const frames = qs("#ind-frames");
+
+  if (span) span.value = clamp(Number(data.ancho || 24), 10, 60);
+  if (length) length.value = clamp(Number(data.largo || 60), 20, 200);
+  if (height) height.value = clamp(Number(data.altura || 8), 4, 16);
+  if (frames) frames.value = clamp(Number(data.porticos || 10), 4, 24);
+
+  updateIndustrialLabels();
 }
 
-/* -------------------------
-  Init
-------------------------- */
-function init() {
-  // initial UI
-  syncControlsFromState();
-  renderPermissions();
+// -------------------- INDUSTRIAL CONTROLS --------------------
+function updateIndustrialLabels() {
+  qs("#ind-span-value").textContent = qs("#ind-span").value;
+  qs("#ind-length-value").textContent = qs("#ind-length").value;
+  qs("#ind-height-value").textContent = qs("#ind-height").value;
+  qs("#ind-frames-value").textContent = qs("#ind-frames").value;
+}
 
-  // initial compute
-  recomputeAll(false);
+function bindIndustrialControls() {
+  ["#ind-span", "#ind-length", "#ind-height", "#ind-frames"].forEach((id) => {
+    const el = qs(id);
+    if (!el) return;
+    el.addEventListener("input", updateIndustrialLabels);
+  });
+
+  updateIndustrialLabels();
+
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+
+    const action = btn.dataset.action;
+
+    if (action === "generate-model") generateModelFromIndustrial();
+    if (action === "export-bom") exportBOM();
+    if (action === "export-json") exportJSON();
+    if (action === "run-rules") runRules();
+    if (action === "reset-viewer") resetViewer();
+    if (action === "save-local") saveLocalVersion();
+    if (action === "load-local") loadLocalVersion();
+    if (action === "connect-supabase") connectSupabase();
+    if (action === "save-remote") saveRemoteVersion();
+    if (action === "load-remote") loadRemoteVersion();
+  });
+
+  const ifcInput = qs("#ifc-file");
+  if (ifcInput) {
+    ifcInput.addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      await loadIFCFile(file);
+    });
+  }
+}
+
+// -------------------- MODELO PARAMÉTRICO (JSON) --------------------
+function generateModelFromIndustrial() {
+  const span = Number(qs("#ind-span")?.value || 24);
+  const length = Number(qs("#ind-length")?.value || 60);
+  const height = Number(qs("#ind-height")?.value || 8);
+  const frames = Number(qs("#ind-frames")?.value || 10);
+  const roof = qs("#ind-roof")?.value || "dos_aguas";
+
+  state.version += 1;
+
+  // Modelo simple (base) — esto luego lo convertimos a IFC con backend (etapa siguiente)
+  // Por ahora es “fuente de verdad” para BOM + reglas + versionado.
+  const model = {
+    meta: { createdAt: nowISO(), version: state.version, unit: "m", source: "RMM Industrial UI" },
+    building: { type: "nave", roof, span, length, height, frames },
+    elements: [],
+  };
+
+  // Generación muy simple de elementos (para BOM y validaciones):
+  // - 2 columnas por pórtico
+  // - 1 viga por pórtico
+  // - correas estimadas
+  for (let i = 0; i < frames; i++) {
+    model.elements.push({ id: `COL-L-${i+1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
+    model.elements.push({ id: `COL-R-${i+1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
+    model.elements.push({ id: `BEAM-${i+1}`, type: "viga", qty: 1, length: span, weightKg: span * 55 });
+  }
+
+  const purlins = Math.max(6, Math.round(length / 4));
+  model.elements.push({ id: `PURLINS`, type: "correas", qty: purlins, length: span, weightKg: purlins * span * 8 });
+
+  state.model = model;
+
+  qs("#geometry-status").textContent = "Geometría calculada (modelo paramétrico).";
+  qs("#kpi-version").textContent = String(state.version);
+
+  renderBOMFromModel();
+  refreshKPIs();
+  qs("#ifc-status").textContent = "Modelo generado. (Próximo: export IFC real con backend).";
+}
+
+function computeTotals(model) {
+  const elements = model?.elements || [];
+  const count = elements.reduce((acc, e) => acc + (Number(e.qty) || 0), 0);
+  const weight = elements.reduce((acc, e) => acc + (Number(e.weightKg) || 0), 0);
+  return { count, weight };
+}
+
+function refreshKPIs() {
+  const { count, weight } = computeTotals(state.model);
+  qs("#kpi-elements").textContent = fmt(count);
+  qs("#kpi-weight").textContent = fmt(weight);
+}
+
+// -------------------- BOM TABLE --------------------
+function renderBOMFromModel() {
+  const tbody = qs("#materials-table");
+  if (!tbody) return;
+
+  if (!state.model) {
+    tbody.innerHTML = `<tr><td colspan="4">Generá un modelo o cargá un IFC.</td></tr>`;
+    return;
+  }
+
+  // Agrupar por type
+  const map = new Map();
+  for (const e of state.model.elements) {
+    const k = e.type;
+    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0 };
+    cur.qty += Number(e.qty) || 0;
+    cur.weightKg += Number(e.weightKg) || 0;
+    map.set(k, cur);
+  }
+
+  const rows = [...map.values()].sort((a, b) => a.type.localeCompare(b.type));
+  tbody.innerHTML = rows
+    .map((r) => {
+      return `
+      <tr>
+        <td>${r.type}</td>
+        <td>${fmt(r.qty)}</td>
+        <td>${fmt(Math.round(r.weightKg))}</td>
+        <td>OK</td>
+      </tr>
+    `;
+    })
+    .join("");
+}
+
+// -------------------- EXPORTS --------------------
+function exportJSON() {
+  if (!state.model) {
+    qs("#ifc-status").textContent = "No hay modelo para exportar.";
+    return;
+  }
+  downloadText(`rmm_model_v${state.version}.json`, JSON.stringify(state.model, null, 2), "application/json");
+}
+
+function exportBOM() {
+  if (!state.model) {
+    qs("#ifc-status").textContent = "No hay modelo para exportar.";
+    return;
+  }
+
+  // BOM agrupado por tipo
+  const map = new Map();
+  for (const e of state.model.elements) {
+    const k = e.type;
+    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0 };
+    cur.qty += Number(e.qty) || 0;
+    cur.weightKg += Number(e.weightKg) || 0;
+    map.set(k, cur);
+  }
+
+  const rows = [...map.values()];
+  const header = "Elemento,Cantidad,Peso_kg,Version\n";
+  const lines = rows.map((r) => `${r.type},${r.qty},${Math.round(r.weightKg)},${state.version}`).join("\n");
+  downloadText(`rmm_bom_v${state.version}.csv`, header + lines, "text/csv");
+}
+
+// -------------------- REGLAS (VALIDACIONES) --------------------
+function runRules() {
+  const summary = qs("#rules-summary");
+  const list = qs("#rules-list");
+  if (!summary || !list) return;
+
+  if (!state.model) {
+    summary.textContent = "No hay modelo para validar.";
+    list.innerHTML = "";
+    return;
+  }
+
+  const b = state.model.building;
+  const results = [];
+
+  // Reglas simples pero útiles (industrial base)
+  results.push(rule("R1", "Dimensiones mínimas", b.span >= 10 && b.length >= 20 && b.height >= 4, "Ancho/Largo/Altura fuera de rango mínimo."));
+  results.push(rule("R2", "Cantidad de pórticos", b.frames >= 4 && b.frames <= 24, "Cantidad de pórticos fuera de rango."));
+  results.push(rule("R3", "Relación esbeltez (demo)", b.height / b.span <= 1.0, "Altura muy grande respecto a la luz (revisar)."));
+  results.push(rule("R4", "Elementos generados", (state.model.elements?.length || 0) > 0, "No se generaron elementos."));
+
+  const ok = results.filter((r) => r.ok).length;
+  summary.textContent = `Validaciones: ${ok}/${results.length} OK`;
+
+  list.innerHTML = results
+    .map(
+      (r) => `
+      <div class="rule-item">
+        <strong>${r.id} — ${r.name}</strong>
+        <div>${r.ok ? "✅ OK" : "⚠️ Revisar"}</div>
+        ${r.ok ? "" : `<div class="helper">${r.msg}</div>`}
+      </div>
+    `
+    )
+    .join("");
+}
+
+function rule(id, name, ok, msg) {
+  return { id, name, ok: Boolean(ok), msg: msg || "" };
+}
+
+// -------------------- IFC VIEWER (IFC.js) --------------------
+// Usamos import dinámico desde CDN. Si el CDN cambia, te muestra mensaje en pantalla.
+// Recomendación industrial: luego lo instalamos por npm (Vite) para robustez.
+async function ensureIfcViewer() {
+  if (state.ifcViewer) return state.ifcViewer;
+
+  const container = qs("#ifc-viewer");
+  const status = qs("#viewer-status");
+  if (!container) return null;
+
+  try {
+    // web-ifc-viewer (IFC.js wrapper)
+    // Nota: si preferís “100% estable”, después lo pasamos a npm + Vite.
+    const mod = await import("https://unpkg.com/web-ifc-viewer@latest/dist/ifc-viewer.es.js");
+
+    const IfcViewerAPI = mod?.IfcViewerAPI;
+    if (!IfcViewerAPI) throw new Error("No se pudo cargar IfcViewerAPI.");
+
+    const viewer = new IfcViewerAPI({
+      container,
+      backgroundColor: { r: 0.04, g: 0.07, b: 0.13, a: 1 },
+    });
+
+    // Grilla + ejes
+    viewer.grid.setGrid();
+    viewer.axes.setAxes();
+
+    // Mejoras básicas
+    viewer.context.renderer.postProduction.active = true;
+
+    state.ifcViewer = viewer;
+    status.textContent = "Listo";
+    return viewer;
+  } catch (err) {
+    container.innerHTML = `
+      <div style="padding:16px;color:#e2e8f0;font-weight:700;">
+        No se pudo cargar IFC.js desde CDN.<br/>
+        <span style="font-weight:400;color:#94a3b8;">
+          Motivo: ${String(err?.message || err)}<br/>
+          Solución industrial: instalar IFC.js por npm (Vite) y empaquetar.
+        </span>
+      </div>
+    `;
+    status.textContent = "Error IFC";
+    return null;
+  }
+}
+
+async function loadIFCFile(file) {
+  const viewer = await ensureIfcViewer();
+  if (!viewer) return;
+
+  qs("#ifc-status").textContent = `Cargando IFC: ${file.name}...`;
+
+  try {
+    const url = URL.createObjectURL(file);
+
+    // Cargar IFC
+    await viewer.IFC.loadIfcUrl(url);
+
+    URL.revokeObjectURL(url);
+
+    state.ifcLoaded = true;
+    qs("#viewer-status").textContent = "IFC cargado";
+    qs("#ifc-status").textContent = `IFC cargado: ${file.name}`;
+
+    // KPI: como no leemos propiedades aún, set básico:
+    qs("#kpi-version").textContent = String(state.version || "-");
+  } catch (err) {
+    qs("#ifc-status").textContent = `Error cargando IFC: ${err?.message || err}`;
+    qs("#viewer-status").textContent = "Error";
+  }
+}
+
+function resetViewer() {
+  const container = qs("#ifc-viewer");
+  if (!container) return;
+
+  // reset básico: limpiar container y reiniciar state
+  container.innerHTML = "";
+  state.ifcViewer = null;
+  state.ifcLoaded = false;
+
+  qs("#viewer-status").textContent = "Sin archivo";
+  qs("#ifc-status").textContent = "Visor reiniciado. Podés cargar un IFC.";
+}
+
+// -------------------- VERSIONADO LOCAL --------------------
+function localKey() {
+  const name = qs("#project-name")?.value?.trim() || "rmm_project";
+  return `rmm_versions_${name}`;
+}
+
+function saveLocalVersion() {
+  if (!state.model) {
+    qs("#persistence-status").textContent = "No hay modelo para guardar.";
+    return;
+  }
+
+  const key = localKey();
+  const current = JSON.parse(localStorage.getItem(key) || "[]");
+  const entry = {
+    savedAt: nowISO(),
+    version: state.version,
+    model: state.model,
+  };
+  current.unshift(entry);
+  localStorage.setItem(key, JSON.stringify(current.slice(0, 50)));
+
+  qs("#persistence-status").textContent = `Versión guardada localmente (v${state.version}).`;
   renderLocalVersions();
-
-  // bind
-  bindConfigurator();
-
-  // 3D
-  init3D();
-  recomputeAll(true);
 }
 
-document.addEventListener("DOMContentLoaded", init);
+function loadLocalVersion() {
+  const key = localKey();
+  const current = JSON.parse(localStorage.getItem(key) || "[]");
+  if (!current.length) {
+    qs("#persistence-status").textContent = "No hay versiones guardadas.";
+    return;
+  }
+  const latest = current[0];
+  state.model = latest.model;
+  state.version = latest.version || state.version;
+
+  qs("#persistence-status").textContent = `Versión cargada (v${state.version}).`;
+  renderBOMFromModel();
+  refreshKPIs();
+  runRules();
+  renderLocalVersions();
+}
+
+function renderLocalVersions() {
+  const box = qs("#version-list");
+  if (!box) return;
+
+  const key = localKey();
+  const current = JSON.parse(localStorage.getItem(key) || "[]");
+
+  if (!current.length) {
+    box.innerHTML = "";
+    return;
+  }
+
+  box.innerHTML = current
+    .slice(0, 8)
+    .map(
+      (v, idx) => `
+      <div class="rule-item">
+        <strong>v${v.version} — ${new Date(v.savedAt).toLocaleString("es-AR")}</strong>
+        <div class="button-row">
+          <button class="ghost" data-action="load-local" data-tooltip="Cargar la última versión local (demo)">Cargar última</button>
+          <button class="ghost" data-action="export-json" data-tooltip="Descargar el modelo actual en JSON">Exportar JSON</button>
+        </div>
+      </div>
+    `
+    )
+    .join("");
+}
+
+// -------------------- SUPABASE (opcional) --------------------
+let supa = null;
+
+function connectSupabase() {
+  const url = qs("#supabase-url")?.value?.trim();
+  const key = qs("#supabase-key")?.value?.trim();
+  const status = qs("#supabase-status");
+  if (!status) return;
+
+  if (!url || !key || !window.supabase) {
+    status.textContent = "Falta Supabase URL o ANON KEY.";
+    return;
+  }
+
+  try {
+    supa = window.supabase.createClient(url, key);
+    status.textContent = "Conectado. (Ahora podés guardar/cargar).";
+  } catch (err) {
+    status.textContent = `Error conectando: ${err?.message || err}`;
+  }
+}
+
+async function saveRemoteVersion() {
+  const status = qs("#supabase-status");
+  if (!status) return;
+  if (!supa) {
+    status.textContent = "No estás conectado a Supabase.";
+    return;
+  }
+  if (!state.model) {
+    status.textContent = "No hay modelo para guardar.";
+    return;
+  }
+
+  // Requiere login real con Supabase Auth (no demo).
+  const { data: auth } = await supa.auth.getUser();
+  const userId = auth?.user?.id;
+  if (!userId) {
+    status.textContent = "Necesitás iniciar sesión real en Supabase Auth para guardar.";
+    return;
+  }
+
+  try {
+    const projectName = qs("#project-name")?.value?.trim() || "Proyecto";
+    const clientName = qs("#project-client")?.value?.trim() || null;
+
+    const payload = {
+      owner_id: userId,
+      project_name: projectName,
+      client_name: clientName,
+      bim_json: state.model,
+    };
+
+    const { error } = await supa.from("project_versions").insert(payload);
+    status.textContent = error ? `Error: ${error.message}` : "Versión guardada en Supabase.";
+  } catch (err) {
+    status.textContent = `Error: ${err?.message || err}`;
+  }
+}
+
+async function loadRemoteVersion() {
+  const status = qs("#supabase-status");
+  if (!status) return;
+  if (!supa) {
+    status.textContent = "No estás conectado a Supabase.";
+    return;
+  }
+
+  const { data: auth } = await supa.auth.getUser();
+  const userId = auth?.user?.id;
+  if (!userId) {
+    status.textContent = "Necesitás iniciar sesión real en Supabase Auth para cargar.";
+    return;
+  }
+
+  try {
+    const { data, error } = await supa
+      .from("project_versions")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (error) {
+      status.textContent = `Error: ${error.message}`;
+      return;
+    }
+
+    if (!data?.length) {
+      status.textContent = "No hay versiones en Supabase.";
+      return;
+    }
+
+    const latest = data[0];
+    state.model = latest.bim_json;
+    state.version = (state.model?.meta?.version) || state.version;
+
+    status.textContent = "Versión cargada desde Supabase.";
+    renderBOMFromModel();
+    refreshKPIs();
+    runRules();
+  } catch (err) {
+    status.textContent = `Error: ${err?.message || err}`;
+  }
+}
+
+// -------------------- INIT --------------------
+function init() {
+  enhanceTooltips();
+  bindModals();
+  bindScrollButtons();
+  bindAuth();
+  bindWizard();
+  bindIndustrialControls();
+
+  // Render inicial
+  renderPermissions(null);
+  renderBOMFromModel();
+  refreshKPIs();
+  runRules();
+  renderLocalVersions();
+}
+
+window.addEventListener("DOMContentLoaded", init);
