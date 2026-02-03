@@ -730,7 +730,7 @@ async function loadRemoteVersion() {
 }
 
 // -------------------- INIT --------------------
-function init() {
+async function init() {
   enhanceTooltips();
   bindModals();
   bindScrollButtons();
@@ -738,7 +738,9 @@ function init() {
   bindWizard();
   bindIndustrialControls();
 
-  // Render inicial
+  // ✅ NUEVO: inicializa el visor (grilla + ejes) aunque no cargues IFC
+  await ensureIfcViewer();
+
   renderPermissions(null);
   renderBOMFromModel();
   refreshKPIs();
@@ -746,4 +748,5 @@ function init() {
   renderLocalVersions();
 }
 
-window.addEventListener("DOMContentLoaded", init);
+window.addEventListener("DOMContentLoaded", () => { init(); });
+
