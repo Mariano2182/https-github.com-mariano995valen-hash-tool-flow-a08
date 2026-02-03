@@ -237,7 +237,7 @@ async function renderParametricPreview() {
   const group = new THREE.Group();
   group.name = "RMM_PREVIEW";
 
-  const { span, length, height, frames } = state.model.building;
+  const { span, length, height, frames, roof } = state.model.building;
   const halfSpan = span / 2;
   const step = frames > 1 ? length / (frames - 1) : length;
 
@@ -261,9 +261,51 @@ async function renderParametricPreview() {
     colR.position.set(halfSpan, height / 2, z);
     group.add(colR);
 
-    const beam = new THREE.Mesh(beamGeo, matBeam);
-    beam.position.set(0, height, z);
-    group.add(beam);
+    // ----- VIGAS SEGÚN TIPO DE CUBIERTA -----
+
+if (roof === "dos_aguas") {
+  // altura de cumbrera (proporción visual)
+  const ridgeHeight = height + span * 0.25;
+
+  const halfSpan = span / 2;
+  const slopeLength = Math.sqrt(
+    Math.pow(halfSpan, 2) + Math.pow(ridgeHeight - height, 2)
+  );
+
+  const slopeGeo = new T.BoxGeometry(slopeLength, beamSize, beamSize);
+
+  // viga izquierda
+  const beamL = new T.Mesh(slopeGeo, matBeam);
+  beamL.position.set(-halfSpan / 2, (height + ridgeHeight) / 2, z);
+  beamL.rotation.z = Math.atan((ridgeHeight - height) / halfSpan);
+  group.add(beamL);
+
+  // viga derecha
+  const beamR = new T.Mesh(slopeGeo, matBeam);
+  beamR.position.set(halfSpan / 2, (height + ridgeHeight) / 2, z);
+  beamR.rotation.z = -Math.atan((ridgeHeight - height) / halfSpan);
+  group.add(beamR);
+
+} else if (roof === "una_agua") {
+  // una sola pendiente
+  const topHeight = height + span * 0.2;
+  const slopeLength = Math.sqrt(
+    Math.pow(span, 2) + Math.pow(topHeight - height, 2)
+  );
+
+  const slopeGeo = new T.BoxGeometry(slopeLength, beamSize, beamSize);
+
+  const beam = new T.Mesh(slopeGeo, matBeam);
+  beam.position.set(0, (height + topHeight) / 2, z);
+  beam.rotation.z = Math.atan((topHeight - height) / span);
+  group.add(beam);
+
+} else {
+  // cubierta plana (default)
+  const beam = new T.Mesh(beamGeo, matBeam);
+  beam.position.set(0, height, z);
+  group.add(beam);
+}
   }
 
   scene.add(group);
