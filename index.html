@@ -1,616 +1,357 @@
 <!doctype html>
 <html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RMM STRUCTURES | Plataforma BIM en la nube</title>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RMM STRUCTURES | Plataforma BIM</title>
 
-    <link rel="stylesheet" href="styles.css" />
-    <script src="script.js" defer></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;600;700;800&display=swap"
+    rel="stylesheet"
+  />
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;600;700;800&display=swap"
-      rel="stylesheet"
-    />
+  <link rel="stylesheet" href="styles.css" />
 
-    <!-- Supabase (opcional) -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  </head>
+  <!-- Three.js + Controls (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
 
-  <body>
-    <header class="hero" id="home">
-      <nav class="top-nav">
-        <div class="logo">RMM STRUCTURES</div>
+  <!-- Supabase (opcional) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-        <div class="nav-links">
-          <a href="#plataforma">Plataforma</a>
-          <a href="#wizard">Flujo BIM</a>
-          <a href="#editor">Editor</a>
-          <a href="#backend">Backend</a>
-          <a href="#equipo">Equipo</a>
-          <button class="primary" data-modal="demo-modal">Solicitar demo</button>
-        </div>
-      </nav>
+  <script src="script.js" defer></script>
+</head>
 
-      <div class="hero-content">
-        <div>
-          <p class="eyebrow">BIM + Ingeniería estructural + Fabricación inteligente</p>
-          <h1>Diseñá, calculá y fabricá estructuras metálicas desde la web.</h1>
-          <p class="lead">
-            RMM STRUCTURES integra geometría paramétrica, coordinación BIM, listados y exportaciones
-            en un solo entorno. Pasá de una idea a un <strong>modelo fabricable</strong>.
-          </p>
+<body>
+  <header class="hero" id="home">
+    <nav class="top-nav">
+      <div class="logo">RMM STRUCTURES</div>
+      <div class="nav-links">
+        <a href="#plataforma">Plataforma</a>
+        <a href="#configurador">Configurador 3D</a>
+        <a href="#reglas">Reglas</a>
+        <a href="#backend">Backend</a>
+        <button class="primary" data-action="open-demo">Solicitar demo</button>
+      </div>
+    </nav>
 
-          <div class="cta-row">
-            <button class="primary" data-scroll="#wizard">Crear mi nave</button>
-            <button class="ghost" data-modal="tour-modal">Ver tour</button>
-          </div>
+    <div class="hero-content">
+      <div>
+        <p class="eyebrow">BIM + Ingeniería estructural + Fabricación inteligente</p>
+        <h1>Diseñá y presupuestá naves industriales desde la web.</h1>
+        <p class="lead">
+          Un MVP que simula el flujo completo: wizard → modelo 3D → BOM → costo → export.
+          En la siguiente etapa se conecta a Supabase para versionado real.
+        </p>
 
-          <div class="hero-metrics">
-            <div>
-              <strong>100%</strong>
-              <span>BIM estructural (MVP)</span>
-            </div>
-            <div>
-              <strong>0</strong>
-              <span>Redibujos</span>
-            </div>
-            <div>
-              <strong>IFC</strong>
-              <span>Integración abierta</span>
-            </div>
-            <div>
-              <strong>CSV</strong>
-              <span>BOM + taller</span>
-            </div>
-          </div>
+        <div class="cta-row">
+          <button class="primary" data-action="scroll" data-target="#configurador">Probar configurador</button>
+          <button class="ghost" data-action="scroll" data-target="#backend">Ver roadmap</button>
         </div>
 
-        <div class="hero-panel">
-          <div class="panel-header">
-            <span>Panel rápido</span>
-            <span class="status" id="app-status">MVP listo</span>
-          </div>
-          <ul>
-            <li>Wizard para nave industrial</li>
-            <li>Permisos por rol (demo)</li>
-            <li>BOM + costo preliminar</li>
-            <li>Versionado local + Supabase opcional</li>
-          </ul>
-          <div class="cta-row" style="margin-top: 16px;">
-            <button class="ghost" data-scroll="#backend">Configurar backend</button>
-            <button class="ghost" data-scroll="#reglas">Explorar reglas</button>
-          </div>
+        <div class="hero-metrics">
+          <div><strong>3D</strong><span>Modelo paramétrico</span></div>
+          <div><strong>BOM</strong><span>Listado automático</span></div>
+          <div><strong>CSV</strong><span>Export inmediato</span></div>
+          <div><strong>v0</strong><span>MVP demostrable</span></div>
         </div>
       </div>
-    </header>
 
-    <main>
-      <!-- AUTH -->
-      <section id="plataforma" class="section alt">
-        <div class="section-title">
-          <h2>Autenticación por roles (demo gratuita)</h2>
-          <p>Simulamos login para habilitar acciones según permisos.</p>
+      <div class="hero-panel">
+        <div class="panel-header">
+          <span>Panel rápido</span>
+          <span class="status">MVP listo</span>
         </div>
+        <ul class="bullets">
+          <li>Wizard de nave (tipo Optinave)</li>
+          <li>Visor 3D con parámetros en vivo</li>
+          <li>Tabla derecha: longitud, peso, piezas</li>
+          <li>Costeo preliminar y export CSV/TXT</li>
+        </ul>
+        <button class="ghost" data-action="scroll" data-target="#configurador">Abrir configurador</button>
+      </div>
+    </div>
+  </header>
 
-        <div class="grid-two">
-          <article class="card">
-            <h3>Ingresar</h3>
+  <main>
+    <section id="plataforma" class="section alt">
+      <div class="section-title">
+        <h2>Plataforma (visión del producto)</h2>
+        <p>
+          Este MVP se enfoca en la experiencia y el flujo vendible. Luego se integra cálculo,
+          export IFC real, uniones y CNC.
+        </p>
+      </div>
 
-            <form id="auth-form" class="auth-form">
-              <label>
-                Email
-                <input type="email" id="auth-email" placeholder="usuario@empresa.com" required />
-              </label>
+      <div class="grid-two">
+        <article class="card">
+          <h3>Roles (demo)</h3>
+          <p>Simulamos permisos según rol, sin backend todavía.</p>
 
-              <label>
-                Rol
-                <select id="auth-role">
-                  <option value="Cliente">Cliente</option>
-                  <option value="Ingeniero">Ingeniero</option>
-                  <option value="Fabricador">Fabricador</option>
-                  <option value="Admin">Admin</option>
-                </select>
-              </label>
-
-              <div class="button-row">
-                <button class="primary" type="submit">Iniciar sesión</button>
-                <button class="ghost" type="button" data-action="logout">Cerrar sesión</button>
-              </div>
-
-              <div class="button-row">
-                <button class="ghost" type="button" data-action="magic-link">
-                  Enviar magic link (Supabase)
-                </button>
-              </div>
-            </form>
-
-            <p class="helper" id="auth-status">Sin sesión activa.</p>
-            <p class="helper" id="auth-supabase-status">Supabase Auth sin configurar.</p>
-          </article>
-
-          <article class="card">
-            <h3>Permisos activos</h3>
-            <ul id="auth-permissions" class="permissions-list"></ul>
-          </article>
-        </div>
-      </section>
-
-      <!-- WIZARD -->
-      <section id="wizard" class="section">
-        <div class="section-title">
-          <h2>Asistente de creación de nave (MVP funcional)</h2>
-          <p>Decisiones simples → modelo paramétrico + listado + export.</p>
-        </div>
-
-        <div class="wizard">
-          <div class="wizard-steps">
-            <button class="step active" type="button" data-step="1">Paso 1</button>
-            <button class="step" type="button" data-step="2">Paso 2</button>
-            <button class="step" type="button" data-step="3">Paso 3</button>
-            <button class="step" type="button" data-step="4">Confirmar</button>
-          </div>
-
-          <form id="wizard-form" class="wizard-form">
-            <div class="step-panel active" data-step="1">
-              <label>
-                Tipo de nave
-                <select name="tipo">
-                  <option value="industrial">Industrial</option>
-                  <option value="logistica">Logística</option>
-                  <option value="agricola">Agrícola</option>
-                </select>
-              </label>
-
-              <label>
-                Ubicación
-                <input type="text" name="ubicacion" placeholder="Córdoba, AR" required />
-              </label>
-            </div>
-
-            <div class="step-panel" data-step="2">
-              <label>
-                Ancho (m)
-                <input type="number" name="ancho" min="10" max="60" value="24" required />
-              </label>
-              <label>
-                Largo (m)
-                <input type="number" name="largo" min="20" max="200" value="60" required />
-              </label>
-              <label>
-                Altura libre (m)
-                <input type="number" name="altura" min="4" max="16" value="8" required />
-              </label>
-              <label>
-                Cantidad de pórticos
-                <input type="number" name="porticos" min="2" max="30" value="10" required />
-              </label>
-            </div>
-
-            <div class="step-panel" data-step="3">
-              <label>
-                Tipo de pórtico
-                <select name="portico">
-                  <option value="rigido">Rígido</option>
-                  <option value="articulado">Articulado</option>
-                  <option value="mixto">Mixto</option>
-                </select>
-              </label>
-
-              <label>
-                Tipo de perfiles (demo)
-                <select name="perfil">
-                  <option value="IPE300">IPE 300</option>
-                  <option value="HEA200">HEA 200</option>
-                  <option value="TUBO200x100">Tubo 200x100</option>
-                </select>
-              </label>
-
-              <label>
-                Cubierta
-                <select name="cubierta">
-                  <option value="chapa">Chapa trapezoidal</option>
-                  <option value="panel">Panel sándwich</option>
-                </select>
-              </label>
-
-              <label>
-                Cerramientos
-                <select name="cerramiento">
-                  <option value="parcial">Parcial</option>
-                  <option value="total">Total</option>
-                </select>
-              </label>
-            </div>
-
-            <div class="step-panel" data-step="4">
-              <div class="summary-box" id="wizard-summary"></div>
-              <button type="submit" class="primary">Crear modelo 3D (demo)</button>
-              <p class="helper" id="wizard-status">Completá el wizard para generar el modelo.</p>
-            </div>
-
-            <div class="wizard-controls">
-              <button type="button" class="ghost" data-action="prev">Anterior</button>
-              <button type="button" class="primary" data-action="next">Siguiente</button>
-            </div>
-          </form>
-        </div>
-      </section>
-
-      <!-- EDITOR / EXPERIENCE -->
-      <section id="editor" class="section alt">
-        <div class="section-title">
-          <h2>Editor BIM (demo operativa)</h2>
-          <p>Genera geometría, BOM, export y avance. (Sin IFC real todavía.)</p>
-        </div>
-
-        <div class="grid-two">
-          <article class="card">
-            <h3>Acciones</h3>
-
-            <div class="button-row">
-              <button class="primary" data-action="build-geometry">Calcular geometría</button>
-              <button class="ghost" data-action="materials">Generar listado</button>
-              <button class="ghost" data-action="progress">Actualizar avance</button>
-            </div>
-
-            <div class="progress" aria-label="Progreso de obra">
-              <div class="progress-bar" id="progress-bar"></div>
-            </div>
-            <p class="helper" id="progress-label">Progreso actual: 62%</p>
-
-            <p class="helper" id="geometry-status">Geometría pendiente de cálculo.</p>
-            <p class="helper" id="detail-status">Detalle pendiente: perfiles y uniones.</p>
-          </article>
-
-          <article class="card">
-            <h3>Listados (BOM)</h3>
-            <div class="table-wrapper">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Elemento</th>
-                    <th>Cantidad</th>
-                    <th>Peso (kg)</th>
-                    <th>Estado</th>
-                  </tr>
-                </thead>
-                <tbody id="materials-table">
-                  <tr>
-                    <td colspan="4">Listado pendiente de generación.</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div class="button-row">
-              <button class="primary" data-action="export-bom">Descargar BOM (CSV)</button>
-              <button class="ghost" data-action="export-json">Exportar Modelo (JSON)</button>
-              <button class="ghost" data-action="export-summary">Resumen (TXT)</button>
-              <button class="ghost" data-action="export-dstv">DSTV-lite (demo)</button>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <!-- PROJECT / WORKSPACE -->
-      <section id="proyecto" class="section split">
-        <div>
-          <h2>Iniciá un proyecto BIM en minutos</h2>
-          <p>Crea un workspace y guarda versiones (local o Supabase).</p>
-
-          <form id="project-form" class="form">
+          <form id="auth-form" class="auth-form">
             <label>
-              Nombre del proyecto
-              <input type="text" name="project" required placeholder="Nave industrial RMM" />
+              Email
+              <input type="email" id="auth-email" placeholder="usuario@empresa.com" required />
             </label>
 
             <label>
-              Ubicación
-              <input type="text" name="location" required placeholder="Alta Gracia, Córdoba" />
-            </label>
-
-            <label>
-              Tonelaje estimado
-              <input type="number" name="tonnage" min="1" required placeholder="450" />
-            </label>
-
-            <label>
-              Estado del diseño
-              <select name="stage" required>
-                <option value="Conceptual">Conceptual</option>
-                <option value="Ingeniería">Ingeniería</option>
-                <option value="Fabricación">Fabricación</option>
-                <option value="Montaje">Montaje</option>
+              Rol
+              <select id="auth-role">
+                <option value="Cliente">Cliente</option>
+                <option value="Ingeniero">Ingeniero</option>
+                <option value="Fabricador">Fabricador</option>
+                <option value="Admin">Admin</option>
               </select>
             </label>
 
-            <button class="primary" type="submit">Crear workspace</button>
-            <p class="helper" id="project-status">Completa el formulario para crear tu workspace.</p>
-          </form>
-        </div>
+            <div class="button-row">
+              <button class="primary" type="submit">Iniciar sesión (demo)</button>
+              <button class="ghost" type="button" data-action="logout">Cerrar sesión</button>
+            </div>
 
-        <div class="card">
-          <h3>Workspace activo</h3>
-          <div class="workspace">
-            <div>
-              <span>Proyecto</span>
-              <strong id="workspace-project">-</strong>
+            <div class="button-row">
+              <button class="ghost" type="button" data-action="magic-link">Enviar magic link (Supabase)</button>
             </div>
-            <div>
-              <span>Ubicación</span>
-              <strong id="workspace-location">-</strong>
-            </div>
-            <div>
-              <span>Tonelaje</span>
-              <strong id="workspace-tonnage">-</strong>
-            </div>
-            <div>
-              <span>Estado</span>
-              <strong id="workspace-stage">-</strong>
-            </div>
+
+            <p class="helper" id="auth-status">Sin sesión activa.</p>
+            <p class="helper" id="auth-supabase-status">Supabase sin configurar.</p>
+          </form>
+        </article>
+
+        <article class="card">
+          <h3>Permisos activos</h3>
+          <ul id="auth-permissions" class="permissions-list"></ul>
+        </article>
+      </div>
+    </section>
+
+    <!-- ✅ SECCIÓN ESTILO OPTINAVE -->
+    <section id="configurador" class="section">
+      <div class="section-title">
+        <h2>Configurador 3D de nave (tipo Optinave)</h2>
+        <p>
+          Panel izquierdo: parámetros. Centro: visor 3D. Panel derecho: cantidades, longitudes y peso.
+        </p>
+      </div>
+
+      <div class="configurator">
+        <!-- LEFT -->
+        <aside class="panel panel-left">
+          <h3>Parámetros</h3>
+
+          <div class="control">
+            <label>Tipo de cubierta</label>
+            <select id="roofType">
+              <option value="2aguas">Dos aguas</option>
+              <option value="1agua">Una agua</option>
+            </select>
           </div>
 
-          <div class="calculator">
-            <label>
-              Precio $/kg
-              <input type="number" id="price-kg" value="2.5" step="0.1" />
-            </label>
-            <label>
-              Coef. fabricación
-              <input type="number" id="coef-fab" value="1.0" step="0.1" />
-            </label>
-            <label>
-              Coef. montaje
-              <input type="number" id="coef-mont" value="0.15" step="0.01" />
-            </label>
-            <button class="primary" data-action="calc-cost" type="button">Calcular</button>
-            <div class="summary-box" id="cost-summary">Costo pendiente.</div>
+          <div class="control">
+            <label>Luz (m): <strong id="spanOut">24</strong></label>
+            <input id="span" type="range" min="10" max="50" step="1" value="24" />
+          </div>
+
+          <div class="control">
+            <label>Longitud (m): <strong id="lengthOut">40</strong></label>
+            <input id="length" type="range" min="20" max="120" step="1" value="40" />
+          </div>
+
+          <div class="control">
+            <label>Altura columnas (m): <strong id="colHOut">4.5</strong></label>
+            <input id="colH" type="range" min="3" max="10" step="0.1" value="4.5" />
+          </div>
+
+          <div class="control">
+            <label>Altura techo (m): <strong id="roofHOut">2</strong></label>
+            <input id="roofH" type="range" min="0" max="6" step="0.1" value="2" />
+          </div>
+
+          <div class="control">
+            <label>Cantidad pórticos: <strong id="framesOut">8</strong></label>
+            <input id="frames" type="range" min="3" max="20" step="1" value="8" />
+          </div>
+
+          <div class="control">
+            <label>Acero</label>
+            <select id="steel">
+              <option value="S275">S275</option>
+              <option value="S355">S355</option>
+            </select>
           </div>
 
           <div class="button-row">
-            <button class="ghost" data-action="save-project" type="button">Guardar versión (local)</button>
-            <button class="ghost" data-action="load-project" type="button">Cargar última (local)</button>
+            <button class="primary" data-action="rebuild">Recalcular modelo</button>
+            <button class="ghost" data-action="export-bom">Exportar BOM (CSV)</button>
           </div>
 
-          <p class="helper" id="persistence-status">Sin versiones guardadas.</p>
-          <div class="versions" id="version-list"></div>
-        </div>
-      </section>
+          <p class="helper" id="cfgStatus">Listo.</p>
+        </aside>
 
-      <!-- CATALOG -->
-      <section id="catalog" class="section">
-        <div class="section-title">
-          <h2>Biblioteca industrial de perfiles (demo)</h2>
-          <p>Catálogo editable + exportable (base para QA y equivalencias).</p>
-        </div>
+        <!-- CENTER -->
+        <section class="panel panel-center">
+          <div class="canvas-wrap">
+            <canvas id="scene"></canvas>
+          </div>
+          <div class="center-actions">
+            <button class="ghost" data-action="reset-camera">Reset cámara</button>
+            <button class="ghost" data-action="toggle-grid">Grilla</button>
+          </div>
+        </section>
 
-        <div class="grid-two">
-          <article class="card">
-            <h3>Biblioteca activa</h3>
-            <div class="grid-two">
-              <label>
-                Biblioteca
-                <select id="catalog-library-select">
-                  <option value="rmm-core">RMM Core (LatAm)</option>
-                  <option value="eu-steel">Eurocode Steel (EU)</option>
-                  <option value="aisc-us">AISC Shapes (US)</option>
-                  <option value="custom-plant">Catálogo Planta (custom)</option>
-                </select>
-              </label>
+        <!-- RIGHT -->
+        <aside class="panel panel-right">
+          <h3>Resumen</h3>
 
-              <label>
-                Empresa
-                <input type="text" id="catalog-company" placeholder="Metalúrgica Andes" />
-              </label>
+          <div class="summary-box" id="summaryBox">
+            <div class="kpi">
+              <span>Pórticos</span><strong id="kpiFrames">8</strong>
             </div>
-
-            <div class="button-row">
-              <button class="primary" type="button" data-action="apply-library">Aplicar</button>
-              <button class="ghost" type="button" data-action="compare-library">Comparar</button>
-              <button class="ghost" type="button" data-action="export-library">Exportar (JSON)</button>
+            <div class="kpi">
+              <span>Longitud total</span><strong id="kpiLen">40 m</strong>
             </div>
-
-            <p class="helper" id="catalog-status">Biblioteca lista.</p>
-          </article>
-
-          <article class="card">
-            <h3>Tabla de perfiles</h3>
-            <div class="table-wrapper">
-              <table class="catalog-table">
-                <thead>
-                  <tr>
-                    <th>Nombre</th>
-                    <th>Norma</th>
-                    <th>Tipo</th>
-                    <th>h (m)</th>
-                    <th>b (m)</th>
-                    <th>tw (m)</th>
-                    <th>tf (m)</th>
-                    <th>rmin (mm)</th>
-                    <th>kg/m</th>
-                  </tr>
-                </thead>
-                <tbody id="catalog-table-body"></tbody>
-              </table>
+            <div class="kpi">
+              <span>Peso estimado</span><strong id="kpiWeight">-</strong>
             </div>
-          </article>
-        </div>
-      </section>
+          </div>
 
-      <!-- RULES -->
-      <section id="reglas" class="section alt">
-        <div class="section-title">
-          <h2>Motor de validaciones (MVP)</h2>
-          <p>Chequeos determinísticos para consistencia y fabricabilidad básica.</p>
-        </div>
+          <h4>Elementos</h4>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Elemento</th>
+                  <th>Cant.</th>
+                  <th>Longitud</th>
+                  <th>Peso</th>
+                </tr>
+              </thead>
+              <tbody id="elementsTable"></tbody>
+            </table>
+          </div>
 
-        <div class="grid-two">
-          <article class="card">
-            <button class="primary" data-action="run-rules" type="button">Ejecutar validaciones</button>
-            <div class="summary-box" id="rules-summary">Listo para validar.</div>
-            <div id="rules-list"></div>
-          </article>
-
-          <article class="card">
-            <h3>Detalle</h3>
-            <div id="rules-detail" class="helper">Seleccioná una regla para ver detalles.</div>
-          </article>
-        </div>
-      </section>
-
-      <!-- BACKEND -->
-      <section id="backend" class="section">
-        <div class="section-title">
-          <h2>Backend mínimo (Supabase)</h2>
-          <p>Persistencia real + Auth + RLS (free tier compatible).</p>
-        </div>
-
-        <div class="grid-two">
-          <article class="card">
-            <h3>Conectar Supabase</h3>
-            <p class="helper">Pegá URL y ANON KEY. Se guarda localmente en tu navegador.</p>
-
-            <label>
-              Supabase URL
-              <input type="url" id="supabase-url" placeholder="https://xxxx.supabase.co" />
+          <h4>Costeo preliminar</h4>
+          <div class="calculator">
+            <label>Precio USD/kg
+              <input type="number" id="priceKg" value="2.5" step="0.1" />
             </label>
-
-            <label>
-              Supabase Anon Key
-              <input type="password" id="supabase-key" placeholder="eyJhbGciOi..." />
+            <label>Coef. fabricación
+              <input type="number" id="coefFab" value="1.0" step="0.1" />
             </label>
+            <label>Coef. montaje
+              <input type="number" id="coefMont" value="0.15" step="0.01" />
+            </label>
+            <button class="primary" data-action="calc-cost">Calcular</button>
+            <div class="summary-box" id="costBox">Sin cálculo.</div>
+          </div>
+        </aside>
+      </div>
+    </section>
 
-            <div class="button-row">
-              <button class="primary" type="button" data-action="supabase-save">Guardar en Supabase</button>
-              <button class="ghost" type="button" data-action="supabase-load">Cargar último</button>
-            </div>
-
-            <p class="helper" id="supabase-status">Sin conexión a Supabase.</p>
-          </article>
-
-          <article class="card">
-            <h3>¿Qué guarda?</h3>
-            <ul>
-              <li>Snapshot del modelo BIM (JSONB)</li>
-              <li>Nombre de proyecto + cliente</li>
-              <li>Historial por fecha</li>
-              <li>Acceso por organización (RLS)</li>
-            </ul>
-          </article>
-        </div>
-      </section>
-
-      <!-- TEAM -->
-      <section id="equipo" class="section dark">
-        <div class="section-title">
-          <h2>Equipo especializado para cada etapa</h2>
-          <p>Ingeniería, fabricación y software con foco en estructuras metálicas.</p>
-        </div>
-
-        <div class="grid-two">
-          <article class="card">
-            <h3>Especialidades</h3>
-            <ul>
-              <li>Ingeniería estructural</li>
-              <li>Metalmecánica + CNC</li>
-              <li>Gestión BIM</li>
-              <li>Software + automatización</li>
-            </ul>
-          </article>
-
-          <article class="card">
-            <h3>¿Listo para migrar a la nube?</h3>
-            <p>Centralizá proyectos, bajá retrabajos y acelerá entregas con RMM STRUCTURES.</p>
-            <button class="primary" data-modal="consulting-modal" type="button">Agenda consultoría</button>
-          </article>
-        </div>
-      </section>
-    </main>
-
-    <footer class="footer">
-      <div>
-        <h3>RMM STRUCTURES</h3>
-        <p>Plataforma BIM para estructuras metálicas y fabricación industrial.</p>
+    <section id="reglas" class="section alt">
+      <div class="section-title">
+        <h2>Motor de reglas (demo)</h2>
+        <p>Validaciones básicas para consistencia y vendibilidad del flujo.</p>
       </div>
 
-      <div class="footer-links">
-        <a href="#plataforma">Plataforma</a>
-        <a href="#wizard">Flujo BIM</a>
-        <a href="#editor">Editor</a>
-        <a href="#backend">Backend</a>
+      <div class="grid-two">
+        <article class="card">
+          <button class="primary" data-action="run-rules">Ejecutar validaciones</button>
+          <div class="summary-box" id="rulesSummary">Listo para validar.</div>
+          <div id="rulesList" class="rules-list"></div>
+        </article>
+
+        <article class="card">
+          <h3>Detalle</h3>
+          <pre id="rulesDetail" class="codebox">Seleccioná una regla para ver detalles.</pre>
+        </article>
+      </div>
+    </section>
+
+    <section id="backend" class="section">
+      <div class="section-title">
+        <h2>Backend mínimo (Supabase)</h2>
+        <p>
+          Cuando el MVP ya tenga usuarios reales, activás guardado versionado con Auth y RLS.
+        </p>
       </div>
 
-      <div class="footer-cta">
-        <p>contacto@rmmstructures.com</p>
-        <button class="ghost" data-modal="demo-modal" type="button">Pedir demo</button>
-      </div>
-    </footer>
-
-    <!-- MODALS -->
-    <div class="modal" id="demo-modal" aria-hidden="true">
-      <div class="modal-content">
-        <button class="modal-close" data-close type="button">×</button>
-        <h2>Solicitá una demo personalizada</h2>
-        <p>Coordiná una presentación con nuestro equipo.</p>
-
-        <form class="form" id="demo-form">
-          <label>
-            Nombre
-            <input type="text" name="name" required placeholder="Nombre y apellido" />
+      <div class="grid-two">
+        <article class="card">
+          <h3>Conexión Supabase (opcional)</h3>
+          <label>Supabase URL
+            <input type="url" id="sbUrl" placeholder="https://xxxx.supabase.co" />
           </label>
-          <label>
-            Empresa
-            <input type="text" name="company" required placeholder="Empresa" />
-          </label>
-          <label>
-            Email
-            <input type="email" name="email" required placeholder="correo@empresa.com" />
+          <label>Anon Key
+            <input type="password" id="sbKey" placeholder="eyJhbGciOi..." />
           </label>
 
-          <button class="primary" type="submit">Agendar demo</button>
-          <p class="helper" id="demo-status">Completá los datos para confirmar.</p>
-        </form>
+          <div class="button-row">
+            <button class="primary" data-action="sb-connect">Conectar</button>
+            <button class="ghost" data-action="sb-save">Guardar versión</button>
+            <button class="ghost" data-action="sb-load">Cargar última</button>
+          </div>
+
+          <p class="helper" id="sbStatus">Sin conexión.</p>
+        </article>
+
+        <article class="card">
+          <h3>Versiones locales</h3>
+          <div id="localVersions" class="versions"></div>
+          <div class="button-row">
+            <button class="primary" data-action="local-save">Guardar local</button>
+            <button class="ghost" data-action="local-load">Cargar última</button>
+          </div>
+          <p class="helper" id="localStatus">Sin versiones.</p>
+        </article>
       </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div>
+      <h3>RMM STRUCTURES</h3>
+      <p>Plataforma BIM para estructuras metálicas y fabricación industrial.</p>
     </div>
-
-    <div class="modal" id="consulting-modal" aria-hidden="true">
-      <div class="modal-content">
-        <button class="modal-close" data-close type="button">×</button>
-        <h2>Agenda una consultoría</h2>
-        <p>Recibí un diagnóstico de tu flujo BIM y fabricación.</p>
-
-        <form class="form" id="consulting-form">
-          <label>
-            Nombre
-            <input type="text" name="name" required placeholder="Nombre y apellido" />
-          </label>
-          <label>
-            Teléfono
-            <input type="tel" name="phone" required placeholder="+54 9 ..." />
-          </label>
-          <label>
-            Desafío principal
-            <textarea name="challenge" rows="3" required placeholder="Contanos tu situación actual"></textarea>
-          </label>
-
-          <button class="primary" type="submit">Enviar</button>
-          <p class="helper" id="consulting-status">Contanos tu desafío para ayudarte.</p>
-        </form>
-      </div>
+    <div class="footer-links">
+      <a href="#home">Inicio</a>
+      <a href="#configurador">Configurador</a>
+      <a href="#reglas">Reglas</a>
+      <a href="#backend">Backend</a>
     </div>
-
-    <div class="modal" id="tour-modal" aria-hidden="true">
-      <div class="modal-content">
-        <button class="modal-close" data-close type="button">×</button>
-        <h2>Tour del flujo BIM (demo)</h2>
-        <p>Simulación simple: wizard → modelo → listado → export.</p>
-        <div class="tour-frame">Vista demo (placeholder)</div>
-        <button class="ghost" type="button" data-action="tour">Iniciar tour</button>
-        <p class="helper" id="tour-status">Presioná iniciar para simular el recorrido.</p>
-      </div>
+    <div class="footer-cta">
+      <p>contacto@rmmstructures.com</p>
+      <button class="ghost" data-action="open-demo">Solicitar demo</button>
     </div>
-  </body>
+  </footer>
+
+  <!-- Modal demo -->
+  <div class="modal" id="demo-modal" aria-hidden="true">
+    <div class="modal-content">
+      <button class="modal-close" data-action="close-modal">×</button>
+      <h2>Solicitar demo</h2>
+      <p>Dejá tus datos y te mostramos el configurador con tu caso real.</p>
+
+      <form id="demo-form" class="form">
+        <label>
+          Nombre
+          <input type="text" name="name" required placeholder="Nombre y apellido" />
+        </label>
+        <label>
+          Empresa
+          <input type="text" name="company" required placeholder="Empresa" />
+        </label>
+        <label>
+          Email
+          <input type="email" name="email" required placeholder="correo@empresa.com" />
+        </label>
+
+        <button class="primary" type="submit">Enviar</button>
+        <p class="form-status" id="demo-status">Completá para enviar.</p>
+      </form>
+    </div>
+  </div>
+</body>
 </html>
