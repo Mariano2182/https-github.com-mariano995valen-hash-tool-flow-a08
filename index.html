@@ -1,585 +1,932 @@
-<!doctype html>
-<html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RMM STRUCTURES | Plataforma BIM Industrial</title>
+// script.js (ES Module)
 
-    <link rel="stylesheet" href="styles.css" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;600;700;800&display=swap"
-      rel="stylesheet"
-    />
+// ✅ Usa importmap del index.html
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-    <!-- Supabase (opcional) -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  </head>
+const qs = (sel, parent = document) => parent.querySelector(sel);
+const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
 
-  <body>
-    <noscript>
-      <div style="padding:16px;background:#fee2e2;color:#7f1d1d;font-weight:700;">
-        Esta plataforma requiere JavaScript para funcionar.
+const state = {
+  session: null,
+  role: null,
+  model: null, // modelo paramétrico (JSON)
+  version: 0,
+
+  // visor Three.js
+  three: {
+    ready: false,
+    container: null,
+    renderer: null,
+    scene: null,
+    camera: null,
+    controls: null,
+    animId: null,
+    root: null, // Group con el modelo
+  },
+};
+
+// -------------------- UTILIDADES --------------------
+function clamp(n, a, b) {
+  return Math.max(a, Math.min(b, n));
+}
+function fmt(n) {
+  try {
+    return Number(n).toLocaleString("es-AR");
+  } catch {
+    return String(n);
+  }
+}
+function nowISO() {
+  return new Date().toISOString();
+}
+function downloadText(filename, text, mime = "text/plain") {
+  const blob = new Blob([text], { type: `${mime};charset=utf-8` });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// -------------------- TOOLTIP ACCESSIBLE --------------------
+function enhanceTooltips() {
+  qsa("[data-tooltip]").forEach((el) => {
+    if (!el.getAttribute("aria-label")) {
+      el.setAttribute("aria-label", el.getAttribute("data-tooltip"));
+    }
+  });
+}
+
+// -------------------- MODAL --------------------
+function openModal(id) {
+  const modal = qs(`#${id}`);
+  if (!modal) return;
+  modal.classList.add("active");
+  modal.setAttribute("aria-hidden", "false");
+}
+function closeModal(modal) {
+  modal.classList.remove("active");
+  modal.setAttribute("aria-hidden", "true");
+}
+function bindModals() {
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+
+    const action = btn.getAttribute("data-action");
+    if (action === "open-demo") openModal("demo-modal");
+    if (action === "close-modal" && btn.closest(".modal")) closeModal(btn.closest(".modal"));
+  });
+
+  qsa("[data-close]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const modal = btn.closest(".modal");
+      if (modal) closeModal(modal);
+    });
+  });
+
+  qsa(".modal").forEach((m) => {
+    m.addEventListener("click", (e) => {
+      if (e.target === m) closeModal(m);
+    });
+  });
+
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest('[data-action="select-role"]');
+    if (!btn) return;
+    state.role = btn.getAttribute("data-role");
+    qs("#role-status").textContent = `Rol seleccionado: ${state.role}. Podés continuar con el asistente o la vista industrial.`;
+    closeModal(qs("#demo-modal"));
+  });
+}
+
+// -------------------- NAV SCROLL --------------------
+function bindScrollButtons() {
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest('[data-action="scroll"]');
+    if (!btn) return;
+    const target = btn.getAttribute("data-target");
+    if (!target) return;
+    const el = qs(target);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
+
+// -------------------- AUTH (DEMO) --------------------
+function rolePermissions(role) {
+  const base = ["Ver proyecto", "Descargar BOM", "Ver validaciones"];
+  if (role === "Cliente") return base;
+  if (role === "Ingeniero") return [...base, "Editar parámetros", "Ejecutar validaciones"];
+  if (role === "Fabricador") return [...base, "Exportar archivos", "Marcar estados de fabricación"];
+  if (role === "Admin") return [...base, "Gestionar usuarios", "Gestionar catálogos", "Todo"];
+  return base;
+}
+function renderPermissions(role) {
+  const ul = qs("#auth-permissions");
+  ul.innerHTML = "";
+  rolePermissions(role).forEach((p) => {
+    const li = document.createElement("li");
+    li.textContent = `• ${p}`;
+    ul.appendChild(li);
+  });
+}
+function bindAuth() {
+  const form = qs("#auth-form");
+  if (!form) return;
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const email = qs("#auth-email").value.trim();
+    const role = qs("#auth-role").value;
+    state.session = { email, role, at: nowISO() };
+    state.role = role;
+
+    qs("#auth-status").textContent = `Sesión demo activa: ${email} (${role})`;
+    renderPermissions(role);
+  });
+
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest('[data-action="logout"]');
+    if (!btn) return;
+    state.session = null;
+    state.role = null;
+    qs("#auth-status").textContent = "Sin sesión activa.";
+    qs("#auth-permissions").innerHTML = "";
+  });
+
+  document.addEventListener("click", async (e) => {
+    const btn = e.target.closest('[data-action="magic-link"]');
+    if (!btn) return;
+
+    const status = qs("#auth-supabase-status");
+    const url = qs("#supabase-url")?.value?.trim();
+    const key = qs("#supabase-key")?.value?.trim();
+    if (!url || !key || !window.supabase) {
+      status.textContent = "Supabase Auth sin configurar (cargá URL y ANON KEY en Backend).";
+      return;
+    }
+
+    try {
+      const client = window.supabase.createClient(url, key);
+      const email = qs("#auth-email").value.trim();
+      const { error } = await client.auth.signInWithOtp({ email });
+      status.textContent = error ? `Error: ${error.message}` : "Magic link enviado (revisá tu email).";
+    } catch (err) {
+      status.textContent = `Error: ${err?.message || err}`;
+    }
+  });
+}
+
+// -------------------- WIZARD --------------------
+function bindWizard() {
+  const form = qs("#wizard-form");
+  if (!form) return;
+
+  const steps = qsa(".wizard-steps .step");
+  const panels = qsa(".wizard-form .step-panel");
+
+  function goStep(n) {
+    const step = clamp(n, 1, 4);
+    steps.forEach((b) => b.classList.toggle("active", b.dataset.step === String(step)));
+    panels.forEach((p) => p.classList.toggle("active", p.dataset.step === String(step)));
+    state.wizardStep = step;
+  }
+
+  steps.forEach((b) => {
+    b.addEventListener("click", () => goStep(Number(b.dataset.step)));
+  });
+
+  document.addEventListener("click", (e) => {
+    const next = e.target.closest('[data-action="next"]');
+    const prev = e.target.closest('[data-action="prev"]');
+    if (next) goStep((state.wizardStep || 1) + 1);
+    if (prev) goStep((state.wizardStep || 1) - 1);
+  });
+
+  form.addEventListener("input", () => {
+    const fd = new FormData(form);
+    const data = Object.fromEntries(fd.entries());
+    const summary = qs("#wizard-summary");
+    if (summary) {
+      summary.innerHTML = `
+        <div><strong>Tipo:</strong> ${data.tipo || "-"}</div>
+        <div><strong>Ubicación:</strong> ${data.ubicacion || "-"}</div>
+        <div><strong>Ancho:</strong> ${data.ancho || "-"} m</div>
+        <div><strong>Largo:</strong> ${data.largo || "-"} m</div>
+        <div><strong>Altura:</strong> ${data.altura || "-"} m</div>
+        <div><strong>Pórticos:</strong> ${data.porticos || "-"}</div>
+        <div><strong>Pórtico:</strong> ${data.portico || "-"}</div>
+        <div><strong>Perfil:</strong> ${data.perfil || "-"}</div>
+        <div><strong>Cubierta:</strong> ${data.cubierta || "-"}</div>
+        <div><strong>Cerramiento:</strong> ${data.cerramiento || "-"}</div>
+      `;
+    }
+  });
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const data = Object.fromEntries(fd.entries());
+
+    setIndustrialInputsFromWizard(data);
+
+    // Generar modelo + BOM + KPIs + Preview 3D
+    generateModelFromIndustrial();
+    renderBOMFromModel();
+    refreshKPIs();
+    runRules();
+
+    qs("#wizard-status").textContent = "Modelo generado. Revisá la vista industrial.";
+    qs("#industrial")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
+
+function setIndustrialInputsFromWizard(data) {
+  const span = qs("#ind-span");
+  const length = qs("#ind-length");
+  const height = qs("#ind-height");
+  const frames = qs("#ind-frames");
+
+  if (span) span.value = clamp(Number(data.ancho || 24), 10, 60);
+  if (length) length.value = clamp(Number(data.largo || 60), 20, 200);
+  if (height) height.value = clamp(Number(data.altura || 8), 4, 16);
+  if (frames) frames.value = clamp(Number(data.porticos || 10), 4, 24);
+
+  updateIndustrialLabels();
+}
+
+// -------------------- INDUSTRIAL CONTROLS --------------------
+function updateIndustrialLabels() {
+  qs("#ind-span-value").textContent = qs("#ind-span").value;
+  qs("#ind-length-value").textContent = qs("#ind-length").value;
+  qs("#ind-height-value").textContent = qs("#ind-height").value;
+  qs("#ind-frames-value").textContent = qs("#ind-frames").value;
+}
+function bindIndustrialControls() {
+  ["#ind-span", "#ind-length", "#ind-height", "#ind-frames", "#ind-roof"].forEach((id) => {
+    const el = qs(id);
+    if (!el) return;
+    el.addEventListener("input", () => {
+      updateIndustrialLabels();
+      // preview en vivo si ya hay modelo
+      if (state.model) renderParametricPreview();
+    });
+  });
+
+  updateIndustrialLabels();
+
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+
+    const action = btn.dataset.action;
+
+    if (action === "generate-model") {
+      generateModelFromIndustrial();
+      renderBOMFromModel();
+      refreshKPIs();
+      runRules();
+    }
+
+    if (action === "export-bom") exportBOM();
+    if (action === "export-json") exportJSON();
+    if (action === "run-rules") runRules();
+    if (action === "reset-viewer") resetViewer();
+
+    if (action === "save-local") saveLocalVersion();
+    if (action === "load-local") loadLocalVersion();
+    if (action === "connect-supabase") connectSupabase();
+    if (action === "save-remote") saveRemoteVersion();
+    if (action === "load-remote") loadRemoteVersion();
+  });
+
+  const ifcInput = qs("#ifc-file");
+  if (ifcInput) {
+    ifcInput.addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      // Por ahora dejamos mensaje (IFC real -> próxima etapa con bundler/ifc.js)
+      qs("#ifc-status").textContent = `IFC (${file.name}) todavía no se parsea en GitHub Pages sin empaquetado. Usá el preview 3D.`;
+    });
+  }
+}
+
+// -------------------- MODELO PARAMÉTRICO (JSON) --------------------
+function generateModelFromIndustrial() {
+  const span = Number(qs("#ind-span")?.value || 24);
+  const length = Number(qs("#ind-length")?.value || 60);
+  const height = Number(qs("#ind-height")?.value || 8);
+  const frames = Number(qs("#ind-frames")?.value || 10);
+  const roof = qs("#ind-roof")?.value || "dos_aguas";
+
+  state.version += 1;
+
+  const model = {
+    meta: { createdAt: nowISO(), version: state.version, unit: "m", source: "RMM Industrial UI" },
+    building: { type: "nave", roof, span, length, height, frames },
+    elements: [],
+  };
+
+  // Elementos simplificados para BOM (no cálculo real)
+  for (let i = 0; i < frames; i++) {
+    model.elements.push({ id: `COL-L-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
+    model.elements.push({ id: `COL-R-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
+
+    // vigas / cabios depende del tipo de cubierta (BOM demo)
+    if (roof === "plana") {
+      model.elements.push({ id: `BEAM-${i + 1}`, type: "viga", qty: 1, length: span, weightKg: span * 55 });
+    } else if (roof === "una_agua") {
+      model.elements.push({ id: `RAFTER-${i + 1}`, type: "cabio", qty: 1, length: span * 1.05, weightKg: span * 48 });
+    } else {
+      model.elements.push({ id: `RAFTER-L-${i + 1}`, type: "cabio", qty: 1, length: (span / 2) * 1.08, weightKg: span * 28 });
+      model.elements.push({ id: `RAFTER-R-${i + 1}`, type: "cabio", qty: 1, length: (span / 2) * 1.08, weightKg: span * 28 });
+      model.elements.push({ id: `RIDGE-${i + 1}`, type: "cumbrera", qty: 1, length: 0.2, weightKg: 8 });
+    }
+  }
+
+  // Correas (cantidad aproximada, por pendiente)
+  const approxPurlinLines = Math.max(6, Math.round(span / 2.2));
+  model.elements.push({
+    id: `PURLINS`,
+    type: "correas",
+    qty: approxPurlinLines * Math.max(1, frames - 1), // por tramo entre pórticos
+    length: Math.max(1, length / Math.max(1, frames - 1)),
+    weightKg: approxPurlinLines * Math.max(1, frames - 1) * 12,
+  });
+
+  state.model = model;
+
+  qs("#geometry-status").textContent = "Geometría calculada (modelo paramétrico).";
+  qs("#kpi-version").textContent = String(state.version);
+
+  qs("#ifc-status").textContent = "Modelo generado. Preview 3D actualizado.";
+  qs("#viewer-status").textContent = "Preview activo";
+
+  renderParametricPreview();
+}
+
+function computeTotals(model) {
+  const elements = model?.elements || [];
+  const count = elements.reduce((acc, e) => acc + (Number(e.qty) || 0), 0);
+  const weight = elements.reduce((acc, e) => acc + (Number(e.weightKg) || 0), 0);
+  return { count, weight };
+}
+function refreshKPIs() {
+  const { count, weight } = computeTotals(state.model);
+  qs("#kpi-elements").textContent = fmt(count);
+  qs("#kpi-weight").textContent = fmt(Math.round(weight));
+}
+
+// -------------------- BOM TABLE --------------------
+function renderBOMFromModel() {
+  const tbody = qs("#materials-table");
+  if (!tbody) return;
+
+  if (!state.model) {
+    tbody.innerHTML = `<tr><td colspan="4">Generá un modelo o cargá un IFC.</td></tr>`;
+    return;
+  }
+
+  const map = new Map();
+  for (const e of state.model.elements) {
+    const k = e.type;
+    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0 };
+    cur.qty += Number(e.qty) || 0;
+    cur.weightKg += Number(e.weightKg) || 0;
+    map.set(k, cur);
+  }
+
+  const rows = [...map.values()].sort((a, b) => a.type.localeCompare(b.type));
+  tbody.innerHTML = rows
+    .map((r) => {
+      return `
+      <tr>
+        <td>${r.type}</td>
+        <td>${fmt(r.qty)}</td>
+        <td>${fmt(Math.round(r.weightKg))}</td>
+        <td>OK</td>
+      </tr>
+    `;
+    })
+    .join("");
+}
+
+// -------------------- EXPORTS --------------------
+function exportJSON() {
+  if (!state.model) {
+    qs("#ifc-status").textContent = "No hay modelo para exportar.";
+    return;
+  }
+  downloadText(`rmm_model_v${state.version}.json`, JSON.stringify(state.model, null, 2), "application/json");
+}
+function exportBOM() {
+  if (!state.model) {
+    qs("#ifc-status").textContent = "No hay modelo para exportar.";
+    return;
+  }
+
+  const map = new Map();
+  for (const e of state.model.elements) {
+    const k = e.type;
+    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0 };
+    cur.qty += Number(e.qty) || 0;
+    cur.weightKg += Number(e.weightKg) || 0;
+    map.set(k, cur);
+  }
+
+  const rows = [...map.values()];
+  const header = "Elemento,Cantidad,Peso_kg,Version\n";
+  const lines = rows.map((r) => `${r.type},${r.qty},${Math.round(r.weightKg)},${state.version}`).join("\n");
+  downloadText(`rmm_bom_v${state.version}.csv`, header + lines, "text/csv");
+}
+
+// -------------------- REGLAS (VALIDACIONES) --------------------
+function rule(id, name, ok, msg) {
+  return { id, name, ok: Boolean(ok), msg: msg || "" };
+}
+function runRules() {
+  const summary = qs("#rules-summary");
+  const list = qs("#rules-list");
+  if (!summary || !list) return;
+
+  if (!state.model) {
+    summary.textContent = "No hay modelo para validar.";
+    list.innerHTML = "";
+    return;
+  }
+
+  const b = state.model.building;
+  const results = [];
+
+  results.push(rule("R1", "Dimensiones mínimas", b.span >= 10 && b.length >= 20 && b.height >= 4, "Ancho/Largo/Altura fuera de rango mínimo."));
+  results.push(rule("R2", "Cantidad de pórticos", b.frames >= 4 && b.frames <= 24, "Cantidad de pórticos fuera de rango."));
+  results.push(rule("R3", "Relación esbeltez (demo)", b.height / b.span <= 1.0, "Altura muy grande respecto a la luz (revisar)."));
+  results.push(rule("R4", "Elementos generados", (state.model.elements?.length || 0) > 0, "No se generaron elementos."));
+
+  const ok = results.filter((r) => r.ok).length;
+  summary.textContent = `Validaciones: ${ok}/${results.length} OK`;
+
+  list.innerHTML = results
+    .map(
+      (r) => `
+      <div class="rule-item">
+        <strong>${r.id} — ${r.name}</strong>
+        <div>${r.ok ? "✅ OK" : "⚠️ Revisar"}</div>
+        ${r.ok ? "" : `<div class="helper">${r.msg}</div>`}
       </div>
-    </noscript>
+    `
+    )
+    .join("");
+}
 
-    <!-- HERO -->
-    <header class="hero" id="home">
-      <nav class="top-nav">
-        <div class="logo">RMM STRUCTURES</div>
+// -------------------- THREE VIEWER --------------------
+function ensureThreeViewer() {
+  if (state.three.ready) return;
 
-        <div class="nav-links">
-          <a href="#plataforma" data-tooltip="Ir a descripción general de la plataforma">Plataforma</a>
-          <a href="#industrial" data-tooltip="Ir a la vista industrial tipo software de naves">Industrial</a>
-          <a href="#wizard" data-tooltip="Ir al asistente para crear una nave">Asistente</a>
-          <a href="#editor" data-tooltip="Ir al editor BIM 3D">Editor BIM</a>
-          <a href="#backend" data-tooltip="Ir a persistencia (local y Supabase)">Backend</a>
+  const container = qs("#ifc-viewer");
+  if (!container) return;
 
-          <button
-            class="primary"
-            data-action="open-demo"
-            data-tooltip="Abrir modal para elegir rol y comenzar"
-          >
-            Crear mi nave
-          </button>
-        </div>
-      </nav>
+  state.three.container = container;
 
-      <div class="hero-content">
-        <div>
-          <p class="eyebrow">BIM + Ingeniería estructural + Fabricación inteligente</p>
-          <h1>Diseñá, calculá y fabricá estructuras metálicas desde la web.</h1>
-          <p class="lead">
-            RMM STRUCTURES integra un flujo BIM paramétrico con versiones, exportaciones y un
-            visor 3D industrial (Preview 3D + IFC opcional).
-          </p>
+  // limpiar por si hay texto previo
+  container.innerHTML = "";
+  container.style.position = "relative";
 
-          <div class="cta-row">
-            <button
-              class="primary"
-              data-action="scroll"
-              data-target="#industrial"
-              data-tooltip="Bajar a la vista industrial con visor 3D + paneles"
-            >
-              Ver plataforma industrial
-            </button>
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  container.appendChild(renderer.domElement);
 
-            <button
-              class="ghost"
-              data-action="scroll"
-              data-target="#wizard"
-              data-tooltip="Bajar al asistente paso a paso para generar una nave"
-            >
-              Abrir asistente
-            </button>
-          </div>
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0b1220);
 
-          <div class="hero-metrics">
-            <div>
-              <strong>IFC</strong>
-              <span>Estándar BIM abierto</span>
-            </div>
-            <div>
-              <strong>BOM</strong>
-              <span>Listados exportables</span>
-            </div>
-            <div>
-              <strong>RLS</strong>
-              <span>Seguridad por roles</span>
-            </div>
-            <div>
-              <strong>Versionado</strong>
-              <span>Historial de cambios</span>
-            </div>
-          </div>
-        </div>
+  const camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 2000);
+  camera.position.set(30, 22, 50);
 
-        <div class="hero-panel">
-          <div class="panel-header">
-            <span class="panel-title">Panel rápido</span>
-            <span class="status" id="app-status">Industrial</span>
-          </div>
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.target.set(0, 6, 20);
 
-          <ul class="quick-list">
-            <li>Asistente de nave</li>
-            <li>Preview 3D (siempre) + IFC opcional</li>
-            <li>Reglas/validaciones</li>
-            <li>Versionado local + Supabase</li>
-          </ul>
+  // grid + axes
+  const grid = new THREE.GridHelper(300, 60, 0x334155, 0x1f2937);
+  grid.position.y = 0;
+  scene.add(grid);
 
-          <div class="button-row">
-            <button
-              class="ghost"
-              data-action="run-rules"
-              data-tooltip="Ejecutar validaciones sobre el modelo actual"
-            >
-              Ejecutar validaciones
-            </button>
-            <button
-              class="ghost"
-              data-action="export-bom"
-              data-tooltip="Descargar listado de materiales (BOM) en CSV"
-            >
-              Descargar BOM
-            </button>
-          </div>
+  const axes = new THREE.AxesHelper(6);
+  axes.position.set(0, 0.01, 0);
+  scene.add(axes);
+
+  // lights
+  const amb = new THREE.AmbientLight(0xffffff, 0.65);
+  scene.add(amb);
+
+  const dir = new THREE.DirectionalLight(0xffffff, 0.95);
+  dir.position.set(80, 120, 40);
+  scene.add(dir);
+
+  state.three.renderer = renderer;
+  state.three.scene = scene;
+  state.three.camera = camera;
+  state.three.controls = controls;
+
+  // root group
+  state.three.root = new THREE.Group();
+  state.three.root.name = "RMM_ROOT";
+  scene.add(state.three.root);
+
+  const onResize = () => {
+    if (!state.three.container) return;
+    const w = state.three.container.clientWidth;
+    const h = state.three.container.clientHeight;
+    renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  };
+
+  window.addEventListener("resize", onResize);
+
+  const animate = () => {
+    state.three.animId = requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+  };
+  animate();
+
+  state.three.ready = true;
+}
+
+function resetViewer() {
+  // limpia solo el modelo (mantiene visor)
+  ensureThreeViewer();
+  if (!state.three.root) return;
+
+  // borrar hijos
+  while (state.three.root.children.length) state.three.root.remove(state.three.root.children[0]);
+
+  qs("#viewer-status").textContent = "Listo";
+  qs("#ifc-status").textContent = "Visor reiniciado. Generá un modelo para ver el 3D.";
+}
+
+// -------------------- GEOMETRÍA: MIEMBROS + CORREAS --------------------
+function addMember(group, start, end, size, material) {
+  const dir = new THREE.Vector3().subVectors(end, start);
+  const len = dir.length();
+  if (len < 1e-6) return;
+
+  const geo = new THREE.BoxGeometry(size, size, len);
+  const mesh = new THREE.Mesh(geo, material);
+
+  // orientar: Box está “en Z”, entonces rotamos para apuntar a dir
+  const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+  mesh.position.copy(mid);
+
+  const zAxis = new THREE.Vector3(0, 0, 1);
+  const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.clone().normalize());
+  mesh.setRotationFromQuaternion(q);
+
+  group.add(mesh);
+}
+
+function renderParametricPreview() {
+  if (!state.model) return;
+
+  ensureThreeViewer();
+  const root = state.three.root;
+  if (!root) return;
+
+  // limpiar anterior
+  while (root.children.length) root.remove(root.children[0]);
+
+  const b = state.model.building;
+  const { span, length, height, frames, roof } = b;
+
+  // materiales
+  const matCol = new THREE.MeshStandardMaterial({ color: 0x3b82f6, metalness: 0.2, roughness: 0.6 });
+  const matRafter = new THREE.MeshStandardMaterial({ color: 0xf9b64c, metalness: 0.2, roughness: 0.55 });
+  const matPurlin = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.1, roughness: 0.75 });
+
+  const group = new THREE.Group();
+  group.name = "RMM_PREVIEW";
+  root.add(group);
+
+  const halfSpan = span / 2;
+  const stepZ = frames > 1 ? length / (frames - 1) : length;
+
+  // tamaños visuales (no perfiles reales)
+  const colSize = Math.max(0.12, span * 0.006);
+  const rafterSize = Math.max(0.10, span * 0.005);
+  const purlinSize = Math.max(0.07, span * 0.0038);
+
+  // pendiente: tomamos una pendiente “típica” visual (10% a 20%)
+  // (la normativa la define por clima/uso, esto es para preview)
+  const slope = 0.15; // rise/run
+  const riseAtHalf = halfSpan * slope; // para dos aguas
+  const riseAtFull = span * slope; // para una agua
+
+  // helper: altura del techo en una posición X
+  function roofY(x) {
+    if (roof === "plana") return height;
+    if (roof === "una_agua") {
+      // sube desde -halfSpan (bajo) a +halfSpan (alto)
+      const t = (x + halfSpan) / span; // 0..1
+      return height + t * riseAtFull;
+    }
+    // dos aguas: sube hasta cumbrera en x=0
+    const ax = Math.abs(x);
+    const t = 1 - ax / halfSpan; // 0 en alero, 1 en cumbrera
+    return height + t * riseAtHalf;
+  }
+
+  // 1) PORTICOS
+  for (let i = 0; i < frames; i++) {
+    const z = i * stepZ;
+
+    const baseL = new THREE.Vector3(-halfSpan, 0, z);
+    const topL = new THREE.Vector3(-halfSpan, height, z);
+
+    const baseR = new THREE.Vector3(halfSpan, 0, z);
+    const topR = new THREE.Vector3(halfSpan, height, z);
+
+    // columnas
+    addMember(group, baseL, topL, colSize, matCol);
+    addMember(group, baseR, topR, colSize, matCol);
+
+    // cubierta por tipo
+    if (roof === "plana") {
+      const beamL = new THREE.Vector3(-halfSpan, height, z);
+      const beamR = new THREE.Vector3(halfSpan, height, z);
+      addMember(group, beamL, beamR, rafterSize, matRafter);
+    } else if (roof === "una_agua") {
+      const yL = roofY(-halfSpan);
+      const yR = roofY(halfSpan);
+      const eaveL = new THREE.Vector3(-halfSpan, yL, z);
+      const eaveR = new THREE.Vector3(halfSpan, yR, z);
+      addMember(group, eaveL, eaveR, rafterSize, matRafter);
+    } else {
+      // dos aguas: dos cabios hasta cumbrera
+      const ridge = new THREE.Vector3(0, roofY(0), z);
+      const eaveL = new THREE.Vector3(-halfSpan, roofY(-halfSpan), z);
+      const eaveR = new THREE.Vector3(halfSpan, roofY(halfSpan), z);
+      addMember(group, eaveL, ridge, rafterSize, matRafter);
+      addMember(group, ridge, eaveR, rafterSize, matRafter);
+    }
+  }
+
+  // 2) CORREAS: POR TRAMO ENTRE PORTICOS (no continuas)
+  // criterio: varias “líneas” de correa a lo largo de la pendiente, y cada una se dibuja entre z_i y z_{i+1}
+  const maxLinesPerSlope = Math.max(5, Math.round(span / 3.0));
+  const lines = clamp(maxLinesPerSlope, 5, 16);
+
+  // posiciones X donde van las líneas de correas
+  let xLines = [];
+  if (roof === "plana") {
+    // correas distribuidas sobre todo el ancho
+    for (let k = 0; k <= lines; k++) {
+      const t = k / lines; // 0..1
+      xLines.push(-halfSpan + t * span);
+    }
+  } else if (roof === "una_agua") {
+    for (let k = 0; k <= lines; k++) {
+      const t = k / lines;
+      xLines.push(-halfSpan + t * span);
+    }
+  } else {
+    // dos aguas: correas por cada faldón (sin duplicar cerca de cumbrera)
+    const perSide = Math.max(3, Math.floor(lines / 2));
+    for (let k = 0; k <= perSide; k++) {
+      const t = k / perSide; // 0..1 desde alero a cumbrera
+      const x = -halfSpan + t * (halfSpan);
+      xLines.push(x);
+    }
+    for (let k = 0; k <= perSide; k++) {
+      const t = k / perSide;
+      const x = halfSpan - t * (halfSpan);
+      xLines.push(x);
+    }
+    // opcional: línea exacta en cumbrera
+    xLines.push(0);
+    // limpiar duplicados casi iguales
+    xLines = [...new Set(xLines.map((v) => v.toFixed(4)))].map(Number).sort((a, b) => a - b);
+  }
+
+  // dibujar correas por tramo entre pórticos
+  for (let i = 0; i < frames - 1; i++) {
+    const z0 = i * stepZ;
+    const z1 = (i + 1) * stepZ;
+
+    for (const x of xLines) {
+      const y = roofY(x);
+
+      const p0 = new THREE.Vector3(x, y, z0);
+      const p1 = new THREE.Vector3(x, y, z1);
+
+      addMember(group, p0, p1, purlinSize, matPurlin);
+    }
+  }
+
+  // encuadre cámara
+  const box = new THREE.Box3().setFromObject(group);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const dist = maxDim * 1.2;
+
+  state.three.controls.target.copy(center);
+  state.three.camera.position.set(center.x + dist, center.y + dist * 0.6, center.z + dist);
+  state.three.camera.lookAt(center);
+
+  qs("#viewer-status").textContent = "Preview activo";
+  qs("#ifc-status").textContent = `Preview 3D: ${roof.replace("_", " ")} | pórticos: ${frames} | correas por tramo.`;
+}
+
+// -------------------- VERSIONADO LOCAL --------------------
+function localKey() {
+  const name = qs("#project-name")?.value?.trim() || "rmm_project";
+  return `rmm_versions_${name}`;
+}
+
+function saveLocalVersion() {
+  if (!state.model) {
+    qs("#persistence-status").textContent = "No hay modelo para guardar.";
+    return;
+  }
+
+  const key = localKey();
+  const current = JSON.parse(localStorage.getItem(key) || "[]");
+  const entry = { savedAt: nowISO(), version: state.version, model: state.model };
+  current.unshift(entry);
+  localStorage.setItem(key, JSON.stringify(current.slice(0, 50)));
+
+  qs("#persistence-status").textContent = `Versión guardada localmente (v${state.version}).`;
+  renderLocalVersions();
+}
+
+function loadLocalVersion() {
+  const key = localKey();
+  const current = JSON.parse(localStorage.getItem(key) || "[]");
+  if (!current.length) {
+    qs("#persistence-status").textContent = "No hay versiones guardadas.";
+    return;
+  }
+  const latest = current[0];
+  state.model = latest.model;
+  state.version = latest.version || state.version;
+
+  qs("#persistence-status").textContent = `Versión cargada (v${state.version}).`;
+  renderBOMFromModel();
+  refreshKPIs();
+  runRules();
+  renderLocalVersions();
+  renderParametricPreview();
+}
+
+function renderLocalVersions() {
+  const box = qs("#version-list");
+  if (!box) return;
+
+  const key = localKey();
+  const current = JSON.parse(localStorage.getItem(key) || "[]");
+
+  if (!current.length) {
+    box.innerHTML = "";
+    return;
+  }
+
+  box.innerHTML = current
+    .slice(0, 8)
+    .map(
+      (v) => `
+      <div class="rule-item">
+        <strong>v${v.version} — ${new Date(v.savedAt).toLocaleString("es-AR")}</strong>
+        <div class="button-row">
+          <button class="ghost" data-action="load-local" data-tooltip="Cargar la última versión local (demo)">Cargar última</button>
+          <button class="ghost" data-action="export-json" data-tooltip="Descargar el modelo actual en JSON">Exportar JSON</button>
         </div>
       </div>
-    </header>
+    `
+    )
+    .join("");
+}
 
-    <main>
-      <!-- PLATAFORMA -->
-      <section id="plataforma" class="section alt">
-        <div class="section-title">
-          <h2>Plataforma diseñada para flujo industrial</h2>
-          <p>
-            Objetivo: parámetros → modelo (Preview 3D / IFC) → listados (BOM) → exportaciones.
-          </p>
-        </div>
+// -------------------- SUPABASE (opcional) --------------------
+let supa = null;
 
-        <div class="grid-two">
-          <article class="card">
-            <h3>Login por rol (demo)</h3>
+function connectSupabase() {
+  const url = qs("#supabase-url")?.value?.trim();
+  const key = qs("#supabase-key")?.value?.trim();
+  const status = qs("#supabase-status");
+  if (!status) return;
 
-            <form id="auth-form" class="auth-form">
-              <label>
-                Email
-                <input type="email" id="auth-email" placeholder="usuario@empresa.com" required />
-              </label>
+  if (!url || !key || !window.supabase) {
+    status.textContent = "Falta Supabase URL o ANON KEY.";
+    return;
+  }
 
-              <label>
-                Rol
-                <select id="auth-role">
-                  <option value="Cliente">Cliente</option>
-                  <option value="Ingeniero">Ingeniero</option>
-                  <option value="Fabricador">Fabricador</option>
-                  <option value="Admin">Admin</option>
-                </select>
-              </label>
+  try {
+    supa = window.supabase.createClient(url, key);
+    status.textContent = "Conectado. (Ahora podés guardar/cargar).";
+  } catch (err) {
+    status.textContent = `Error conectando: ${err?.message || err}`;
+  }
+}
 
-              <div class="button-row">
-                <button class="primary" type="submit" data-tooltip="Simular inicio de sesión con rol">
-                  Iniciar sesión
-                </button>
-                <button class="ghost" type="button" data-action="logout" data-tooltip="Cerrar sesión y limpiar permisos">
-                  Cerrar sesión
-                </button>
-              </div>
+async function saveRemoteVersion() {
+  const status = qs("#supabase-status");
+  if (!status) return;
+  if (!supa) {
+    status.textContent = "No estás conectado a Supabase.";
+    return;
+  }
+  if (!state.model) {
+    status.textContent = "No hay modelo para guardar.";
+    return;
+  }
 
-              <div class="button-row">
-                <button class="ghost" type="button" data-action="magic-link" data-tooltip="Enviar magic link si configurás Supabase Auth">
-                  Enviar magic link (Supabase)
-                </button>
-              </div>
-            </form>
+  const { data: auth } = await supa.auth.getUser();
+  const userId = auth?.user?.id;
+  if (!userId) {
+    status.textContent = "Necesitás iniciar sesión real en Supabase Auth para guardar.";
+    return;
+  }
 
-            <p class="helper" id="auth-status">Sin sesión activa.</p>
-            <p class="helper" id="auth-supabase-status">Supabase Auth sin configurar.</p>
-          </article>
+  try {
+    const projectName = qs("#project-name")?.value?.trim() || "Proyecto";
+    const clientName = qs("#project-client")?.value?.trim() || null;
 
-          <article class="card">
-            <h3>Permisos activos</h3>
-            <ul id="auth-permissions" class="permissions-list"></ul>
-          </article>
-        </div>
-      </section>
+    const payload = {
+      owner_id: userId,
+      project_name: projectName,
+      client_name: clientName,
+      bim_json: state.model,
+    };
 
-      <!-- INDUSTRIAL -->
-      <section id="industrial" class="section">
-        <div class="section-title">
-          <h2>Vista industrial (estilo software de naves)</h2>
-          <p>Panel de parámetros → visor central 3D → tablas y validaciones.</p>
-        </div>
+    const { error } = await supa.from("project_versions").insert(payload);
+    status.textContent = error ? `Error: ${error.message}` : "Versión guardada en Supabase.";
+  } catch (err) {
+    status.textContent = `Error: ${err?.message || err}`;
+  }
+}
 
-        <div class="industrial-shell">
-          <!-- PANEL IZQUIERDO -->
-          <aside class="industrial-panel">
-            <div class="panel-block">
-              <h3>Parámetros</h3>
+async function loadRemoteVersion() {
+  const status = qs("#supabase-status");
+  if (!status) return;
+  if (!supa) {
+    status.textContent = "No estás conectado a Supabase.";
+    return;
+  }
 
-              <label>
-                Tipo de cubierta
-                <select id="ind-roof">
-                  <option value="dos_aguas">Dos aguas</option>
-                  <option value="una_agua">Una agua</option>
-                  <option value="plana">Plana</option>
-                </select>
-              </label>
+  const { data: auth } = await supa.auth.getUser();
+  const userId = auth?.user?.id;
+  if (!userId) {
+    status.textContent = "Necesitás iniciar sesión real en Supabase Auth para cargar.";
+    return;
+  }
 
-              <label>
-                Luz de la nave (m)
-                <input id="ind-span" type="range" min="10" max="60" value="24" />
-                <small><span id="ind-span-value">24</span> m</small>
-              </label>
+  try {
+    const { data, error } = await supa.from("project_versions").select("*").order("created_at", { ascending: false }).limit(1);
 
-              <label>
-                Longitud (m)
-                <input id="ind-length" type="range" min="20" max="200" value="60" />
-                <small><span id="ind-length-value">60</span> m</small>
-              </label>
+    if (error) {
+      status.textContent = `Error: ${error.message}`;
+      return;
+    }
 
-              <label>
-                Altura libre (m)
-                <input id="ind-height" type="range" min="4" max="16" value="8" />
-                <small><span id="ind-height-value">8</span> m</small>
-              </label>
+    if (!data?.length) {
+      status.textContent = "No hay versiones en Supabase.";
+      return;
+    }
 
-              <label>
-                Cantidad de pórticos
-                <input id="ind-frames" type="range" min="4" max="24" value="10" />
-                <small><span id="ind-frames-value">10</span></small>
-              </label>
-            </div>
+    const latest = data[0];
+    state.model = latest.bim_json;
+    state.version = state.model?.meta?.version || state.version;
 
-            <div class="panel-block">
-              <h3>Acciones</h3>
+    status.textContent = "Versión cargada desde Supabase.";
+    renderBOMFromModel();
+    refreshKPIs();
+    runRules();
+    renderParametricPreview();
+  } catch (err) {
+    status.textContent = `Error: ${err?.message || err}`;
+  }
+}
 
-              <div class="button-col">
-                <button
-                  class="primary"
-                  data-action="generate-model"
-                  data-tooltip="Generar el modelo paramétrico y actualizar tablas/visor"
-                >
-                  Generar modelo
-                </button>
+// -------------------- INIT --------------------
+function init() {
+  enhanceTooltips();
+  bindModals();
+  bindScrollButtons();
+  bindAuth();
+  bindWizard();
+  bindIndustrialControls();
 
-                <label class="file-label" data-tooltip="Cargar un archivo IFC para verlo en el visor (si IFC.js está disponible)">
-                  Cargar IFC
-                  <input id="ifc-file" type="file" accept=".ifc" />
-                </label>
+  ensureThreeViewer(); // deja el visor listo
+  renderPermissions(null);
+  renderBOMFromModel();
+  refreshKPIs();
+  runRules();
+  renderLocalVersions();
+}
 
-                <button class="ghost" data-action="reset-viewer" data-tooltip="Reiniciar el visor 3D a estado inicial">
-                  Reiniciar visor
-                </button>
-
-                <button class="ghost" data-action="export-bom" data-tooltip="Descargar listado de materiales (BOM) en CSV">
-                  Exportar BOM (CSV)
-                </button>
-
-                <button class="ghost" data-action="export-json" data-tooltip="Descargar el modelo (JSON) para versionado o backend">
-                  Exportar JSON
-                </button>
-              </div>
-
-              <p class="helper" id="ifc-status">Preview listo. Generá un modelo para verlo.</p>
-            </div>
-          </aside>
-
-          <!-- VISOR CENTRAL -->
-          <section class="industrial-view">
-            <div class="viewer-topbar">
-              <span class="viewer-title">Visor 3D (Preview / IFC)</span>
-              <span class="status" id="viewer-status">Sin archivo</span>
-            </div>
-
-            <div id="ifc-viewer" class="ifc-viewer" aria-label="Visor 3D"></div>
-
-            <div class="viewer-footer">
-              <div class="viewer-kpis">
-                <div>
-                  <strong id="kpi-elements">0</strong>
-                  <span>Elementos</span>
-                </div>
-                <div>
-                  <strong id="kpi-weight">0</strong>
-                  <span>Kg estimados</span>
-                </div>
-                <div>
-                  <strong id="kpi-version">-</strong>
-                  <span>Versión</span>
-                </div>
-              </div>
-
-              <button class="ghost" data-action="run-rules" data-tooltip="Ejecutar reglas de validación sobre el modelo actual">
-                Validar modelo
-              </button>
-            </div>
-          </section>
-
-          <!-- PANEL DERECHO -->
-          <aside class="industrial-panel right">
-            <div class="panel-block">
-              <h3>Tabla (BOM)</h3>
-              <div class="table-scroll">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>Elemento</th>
-                      <th>Cantidad</th>
-                      <th>Peso (kg)</th>
-                      <th>Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody id="materials-table">
-                    <tr>
-                      <td colspan="4">Generá un modelo o cargá un IFC.</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div class="panel-block">
-              <h3>Validaciones</h3>
-              <div class="summary-box" id="rules-summary">Listo para validar.</div>
-              <div class="rules-list" id="rules-list"></div>
-            </div>
-          </aside>
-        </div>
-      </section>
-
-      <!-- WIZARD -->
-      <section id="wizard" class="section alt">
-        <div class="section-title">
-          <h2>Asistente de creación de nave (paso a paso)</h2>
-          <p>Reduce ingeniería compleja a decisiones simples.</p>
-        </div>
-
-        <div class="wizard">
-          <div class="wizard-steps">
-            <button class="step active" data-step="1" data-tooltip="Ir a Paso 1: tipo y ubicación">Paso 1</button>
-            <button class="step" data-step="2" data-tooltip="Ir a Paso 2: dimensiones principales">Paso 2</button>
-            <button class="step" data-step="3" data-tooltip="Ir a Paso 3: sistema y perfiles">Paso 3</button>
-            <button class="step" data-step="4" data-tooltip="Ir a Confirmar y generar">Confirmar</button>
-          </div>
-
-          <form id="wizard-form" class="wizard-form">
-            <div class="step-panel active" data-step="1">
-              <label>
-                Tipo de nave
-                <select name="tipo">
-                  <option value="industrial">Industrial</option>
-                  <option value="logistica">Logística</option>
-                  <option value="agricola">Agrícola</option>
-                </select>
-              </label>
-
-              <label>
-                Ubicación
-                <input type="text" name="ubicacion" placeholder="Córdoba, AR" required />
-              </label>
-            </div>
-
-            <div class="step-panel" data-step="2">
-              <label>
-                Ancho (m)
-                <input type="number" name="ancho" min="10" max="60" value="24" required />
-              </label>
-
-              <label>
-                Largo (m)
-                <input type="number" name="largo" min="20" max="200" value="60" required />
-              </label>
-
-              <label>
-                Altura libre (m)
-                <input type="number" name="altura" min="4" max="16" value="8" required />
-              </label>
-
-              <label>
-                Cantidad de pórticos
-                <input type="number" name="porticos" min="4" max="24" value="10" required />
-              </label>
-            </div>
-
-            <div class="step-panel" data-step="3">
-              <label>
-                Tipo de pórtico
-                <select name="portico">
-                  <option value="rigido">Rígido</option>
-                  <option value="articulado">Articulado</option>
-                  <option value="mixto">Mixto</option>
-                </select>
-              </label>
-
-              <label>
-                Tipo de perfiles
-                <select name="perfil">
-                  <option value="ipe">IPE</option>
-                  <option value="hea">HEA</option>
-                  <option value="tubo">Tubo</option>
-                </select>
-              </label>
-
-              <label>
-                Cubierta
-                <select name="cubierta">
-                  <option value="chapa">Chapa trapezoidal</option>
-                  <option value="panel">Panel sándwich</option>
-                </select>
-              </label>
-
-              <label>
-                Cerramientos
-                <select name="cerramiento">
-                  <option value="parcial">Parcial</option>
-                  <option value="total">Total</option>
-                </select>
-              </label>
-            </div>
-
-            <div class="step-panel" data-step="4">
-              <div class="summary-box" id="wizard-summary"></div>
-
-              <button type="submit" class="primary" data-tooltip="Crear modelo y volcarlo a la vista industrial">
-                Crear modelo
-              </button>
-
-              <p class="helper" id="wizard-status">Completá el wizard para generar el modelo.</p>
-            </div>
-
-            <div class="wizard-controls">
-              <button type="button" class="ghost" data-action="prev" data-tooltip="Volver al paso anterior">Anterior</button>
-              <button type="button" class="primary" data-action="next" data-tooltip="Avanzar al siguiente paso">Siguiente</button>
-            </div>
-          </form>
-        </div>
-      </section>
-
-      <!-- EDITOR -->
-      <section id="editor" class="section">
-        <div class="section-title">
-          <h2>Editor BIM 3D</h2>
-          <p>En esta fase usamos el visor 3D como base. Luego se suma edición por elemento.</p>
-        </div>
-
-        <div class="grid-two">
-          <article class="card">
-            <h3>Acciones</h3>
-            <div class="button-row">
-              <button class="primary" data-action="generate-model" data-tooltip="Generar el modelo actual (paramétrico) y actualizar todo">
-                Calcular geometría
-              </button>
-              <button class="ghost" data-action="export-bom" data-tooltip="Exportar listado BOM en CSV">
-                Exportar BOM
-              </button>
-              <button class="ghost" data-action="export-json" data-tooltip="Exportar el modelo en JSON">
-                Exportar JSON
-              </button>
-            </div>
-            <p class="helper" id="geometry-status">Geometría pendiente de cálculo.</p>
-          </article>
-
-          <article class="card">
-            <h3>Propiedades / Selección</h3>
-            <p class="helper">Próximo paso: árbol BIM, selección de elementos IFC y panel de propiedades.</p>
-          </article>
-        </div>
-      </section>
-
-      <!-- BACKEND -->
-      <section id="backend" class="section alt">
-        <div class="section-title">
-          <h2>Guardado y versionado (gratis)</h2>
-          <p>Persistencia local (demo) + Supabase Free (backend real).</p>
-        </div>
-
-        <div class="grid-two">
-          <article class="card">
-            <h3>Versionado local</h3>
-            <div class="grid-two">
-              <label>
-                Proyecto
-                <input type="text" id="project-name" placeholder="Nave logística RMM" />
-              </label>
-              <label>
-                Cliente
-                <input type="text" id="project-client" placeholder="Grupo Industrial" />
-              </label>
-            </div>
-
-            <div class="button-row">
-              <button class="primary" data-action="save-local" data-tooltip="Guardar una versión del modelo en tu navegador">
-                Guardar versión (local)
-              </button>
-              <button class="ghost" data-action="load-local" data-tooltip="Cargar la última versión guardada en tu navegador">
-                Cargar última (local)
-              </button>
-            </div>
-
-            <p class="helper" id="persistence-status">Sin versiones guardadas.</p>
-            <div class="versions" id="version-list"></div>
-          </article>
-
-          <article class="card">
-            <h3>Supabase Free (opcional)</h3>
-            <p class="helper">Usa el schema <code>supabase_schema.sql</code> para crear tablas y RLS.</p>
-
-            <div class="grid-two">
-              <label>
-                Supabase URL
-                <input type="url" id="supabase-url" placeholder="https://xxxx.supabase.co" />
-              </label>
-              <label>
-                Supabase Anon Key
-                <input type="password" id="supabase-key" placeholder="eyJhbGciOi..." />
-              </label>
-            </div>
-
-            <div class="button-row">
-              <button class="primary" data-action="connect-supabase" data-tooltip="Conectar tu Supabase para guardar versiones reales">
-                Conectar
-              </button>
-              <button class="ghost" data-action="save-remote" data-tooltip="Guardar una versión del modelo en Supabase">
-                Guardar (Supabase)
-              </button>
-              <button class="ghost" data-action="load-remote" data-tooltip="Cargar la última versión guardada en Supabase">
-                Cargar (Supabase)
-              </button>
-            </div>
-
-            <p class="helper" id="supabase-status">Sin conexión a Supabase.</p>
-          </article>
-        </div>
-      </section>
-    </main>
-
-    <!-- FOOTER -->
-    <footer class="footer">
-      <div>
-        <h3>RMM STRUCTURES</h3>
-        <p>Plataforma BIM industrial para estructuras metálicas.</p>
-      </div>
-      <div class="footer-links">
-        <a href="#home" data-tooltip="Volver arriba">Inicio</a>
-        <a href="#industrial" data-tooltip="Ir a la vista industrial">Industrial</a>
-        <a href="#wizard" data-tooltip="Ir al asistente">Asistente</a>
-        <a href="#backend" data-tooltip="Ir al backend gratis">Backend</a>
-      </div>
-      <div class="footer-cta">
-        <p>contacto@rmmstructures.com</p>
-      </div>
-    </footer>
-
-    <!-- MODAL: ELEGIR ROL -->
-    <div class="modal" id="demo-modal" aria-hidden="true">
-      <div class="modal-content">
-        <button class="modal-close" data-close data-tooltip="Cerrar el modal">×</button>
-        <h2>Crear mi nave</h2>
-        <p>Elegí un rol para iniciar el flujo.</p>
-
-        <div class="role-grid">
-          <button class="ghost" data-action="select-role" data-role="Cliente" data-tooltip="Modo cliente: ver y aprobar">
-            Cliente
-          </button>
-          <button class="ghost" data-action="select-role" data-role="Ingeniero" data-tooltip="Modo ingeniería: definir estructura y validar">
-            Ingeniero
-          </button>
-          <button class="ghost" data-action="select-role" data-role="Fabricador" data-tooltip="Modo fabricación: BOM, planos y export">
-            Fabricador
-          </button>
-          <button class="ghost" data-action="select-role" data-role="Admin" data-tooltip="Modo admin: gestión y permisos">
-            Admin
-          </button>
-        </div>
-
-        <p class="helper" id="role-status">Seleccioná un rol para continuar.</p>
-      </div>
-    </div>
-
-    <!-- ✅ Script principal al final para asegurar que el DOM exista -->
-    <!-- ✅ Cache-bust para GitHub Pages (cambiá el número cuando actualices) -->
-    <script type="module" src="./script.js?v=2026-02-03-3"></script>
-  </body>
-</html>
+window.addEventListener("DOMContentLoaded", init);
