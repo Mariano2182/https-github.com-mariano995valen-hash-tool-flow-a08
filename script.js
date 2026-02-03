@@ -6,29 +6,19 @@ const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
 const state = {
   session: null,
   role: null,
-  model: null, // modelo paramétrico (JSON) = fuente de verdad
+  model: null,
   version: 0,
   wizardStep: 1,
 
-  // IFC (opcional)
+  // IFC opcional
   ifcViewer: null,
   ifcLoaded: false,
 };
 
-// =====================================================
-// UTILIDADES
-// =====================================================
-function clamp(n, a, b) {
-  return Math.max(a, Math.min(b, n));
-}
-
-function fmt(n) {
-  try {
-    return Number(n).toLocaleString("es-AR");
-  } catch {
-    return String(n);
-  }
-}
+// -------------------- UTILIDADES --------------------
+function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
+function nowISO() { return new Date().toISOString(); }
+function fmt(n) { try { return Number(n).toLocaleString("es-AR"); } catch { return String(n); } }
 
 function downloadText(filename, text, mime = "text/plain") {
   const blob = new Blob([text], { type: `${mime};charset=utf-8` });
@@ -39,50 +29,32 @@ function downloadText(filename, text, mime = "text/plain") {
   URL.revokeObjectURL(a.href);
 }
 
-function nowISO() {
-  return new Date().toISOString();
-}
-
-// =====================================================
-// TOOLTIP ACCESSIBLE (extra)
-// =====================================================
-// Ya los tooltips se muestran por CSS con data-tooltip.
-// Esto solo agrega aria-label si falta (mejora accesibilidad).
 function enhanceTooltips() {
   qsa("[data-tooltip]").forEach((el) => {
-    if (!el.getAttribute("aria-label")) {
-      el.setAttribute("aria-label", el.getAttribute("data-tooltip"));
-    }
+    if (!el.getAttribute("aria-label")) el.setAttribute("aria-label", el.getAttribute("data-tooltip"));
   });
 }
 
-// =====================================================
-// MODAL
-// =====================================================
+// -------------------- MODAL --------------------
 function openModal(id) {
   const modal = qs(`#${id}`);
   if (!modal) return;
   modal.classList.add("active");
   modal.setAttribute("aria-hidden", "false");
 }
-
 function closeModal(modal) {
   modal.classList.remove("active");
   modal.setAttribute("aria-hidden", "true");
 }
-
 function bindModals() {
-  // open by action
   document.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
-
     const action = btn.getAttribute("data-action");
     if (action === "open-demo") openModal("demo-modal");
     if (action === "close-modal" && btn.closest(".modal")) closeModal(btn.closest(".modal"));
   });
 
-  // close buttons
   qsa("[data-close]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const modal = btn.closest(".modal");
@@ -90,14 +62,12 @@ function bindModals() {
     });
   });
 
-  // close when click outside
   qsa(".modal").forEach((m) => {
     m.addEventListener("click", (e) => {
       if (e.target === m) closeModal(m);
     });
   });
 
-  // role selection
   document.addEventListener("click", (e) => {
     const btn = e.target.closest('[data-action="select-role"]');
     if (!btn) return;
@@ -107,9 +77,7 @@ function bindModals() {
   });
 }
 
-// =====================================================
-// NAV SCROLL
-// =====================================================
+// -------------------- NAV SCROLL --------------------
 function bindScrollButtons() {
   document.addEventListener("click", (e) => {
     const btn = e.target.closest('[data-action="scroll"]');
@@ -121,9 +89,7 @@ function bindScrollButtons() {
   });
 }
 
-// =====================================================
-// AUTH (DEMO)
-// =====================================================
+// -------------------- AUTH (DEMO) --------------------
 function rolePermissions(role) {
   const base = ["Ver proyecto", "Descargar BOM", "Ver validaciones"];
   if (role === "Cliente") return base;
@@ -132,7 +98,6 @@ function rolePermissions(role) {
   if (role === "Admin") return [...base, "Gestionar usuarios", "Gestionar catálogos", "Todo"];
   return base;
 }
-
 function renderPermissions(role) {
   const ul = qs("#auth-permissions");
   if (!ul) return;
@@ -143,7 +108,6 @@ function renderPermissions(role) {
     ul.appendChild(li);
   });
 }
-
 function bindAuth() {
   const form = qs("#auth-form");
   if (!form) return;
@@ -154,7 +118,6 @@ function bindAuth() {
     const role = qs("#auth-role").value;
     state.session = { email, role, at: nowISO() };
     state.role = role;
-
     qs("#auth-status").textContent = `Sesión demo activa: ${email} (${role})`;
     renderPermissions(role);
   });
@@ -162,63 +125,27 @@ function bindAuth() {
   document.addEventListener("click", (e) => {
     const btn = e.target.closest('[data-action="logout"]');
     if (!btn) return;
-
     state.session = null;
     state.role = null;
     qs("#auth-status").textContent = "Sin sesión activa.";
     qs("#auth-permissions").innerHTML = "";
   });
-
-  // Magic link (opcional)
-  document.addEventListener("click", async (e) => {
-    const btn = e.target.closest('[data-action="magic-link"]');
-    if (!btn) return;
-
-    const status = qs("#auth-supabase-status");
-    const url = qs("#supabase-url")?.value?.trim();
-    const key = qs("#supabase-key")?.value?.trim();
-    if (!url || !key || !window.supabase) {
-      status.textContent = "Supabase Auth sin configurar (cargá URL y ANON KEY en Backend).";
-      return;
-    }
-
-    try {
-      const client = window.supabase.createClient(url, key);
-      const email = qs("#auth-email").value.trim();
-      const { error } = await client.auth.signInWithOtp({ email });
-      status.textContent = error ? `Error: ${error.message}` : "Magic link enviado (revisá tu email).";
-    } catch (err) {
-      status.textContent = `Error: ${err?.message || err}`;
-    }
-  });
 }
 
 // =====================================================
-// THREE.JS VIEWER (PREVIEW PARAMÉTRICO) - GRATIS / ESTABLE
+// THREE.JS VIEWER (PREVIEW) - SIEMPRE ACTIVO
 // =====================================================
 let three = null;
 
 async function ensureThreeViewer() {
   if (three) return three;
 
-  // Import UMD desde unpkg (funciona bien en GitHub Pages)
-  // Nota: OrbitControls.js define THREE.OrbitControls globalmente.
   try {
     await import("https://unpkg.com/three@0.158.0/build/three.min.js");
     await import("https://unpkg.com/three@0.158.0/examples/js/controls/OrbitControls.js");
   } catch (err) {
-    console.error("Error cargando Three.js:", err);
     const container = qs("#ifc-viewer");
-    if (container) {
-      container.innerHTML = `
-        <div style="padding:16px;color:#e2e8f0;font-weight:700;">
-          No se pudo cargar Three.js desde CDN.<br/>
-          <span style="font-weight:400;color:#94a3b8;">
-            Motivo: ${String(err?.message || err)}
-          </span>
-        </div>
-      `;
-    }
+    if (container) container.innerHTML = `<div style="padding:16px;color:#e2e8f0;">Error cargando Three.js: ${String(err?.message || err)}</div>`;
     return null;
   }
 
@@ -228,34 +155,27 @@ async function ensureThreeViewer() {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0b1220);
 
-  const camera = new THREE.PerspectiveCamera(
-    60,
-    container.clientWidth / container.clientHeight,
-    0.1,
-    2000
-  );
+  const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 2000);
   camera.position.set(30, 25, 30);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.setPixelRatio(window.devicePixelRatio);
+
   container.innerHTML = "";
   container.appendChild(renderer.domElement);
 
   const controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
 
-  // Luces
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
   const dir = new THREE.DirectionalLight(0xffffff, 0.9);
   dir.position.set(20, 40, 20);
   scene.add(dir);
 
-  // Grilla + ejes
   scene.add(new THREE.GridHelper(200, 200));
   scene.add(new THREE.AxesHelper(5));
 
-  // Loop
   function animate() {
     requestAnimationFrame(animate);
     controls.update();
@@ -263,7 +183,6 @@ async function ensureThreeViewer() {
   }
   animate();
 
-  // Resize
   window.addEventListener("resize", () => {
     camera.aspect = container.clientWidth / container.clientHeight;
     camera.updateProjectionMatrix();
@@ -273,12 +192,10 @@ async function ensureThreeViewer() {
   three = { scene, camera, renderer, controls };
 
   const vs = qs("#viewer-status");
-  if (vs) vs.textContent = "Visor activo";
-
+  if (vs) vs.textContent = "Preview activo";
   return three;
 }
 
-// Helper: fit a box (para encuadre)
 function fitToBox(controls, camera, box) {
   const size = new THREE.Vector3();
   const center = new THREE.Vector3();
@@ -295,16 +212,13 @@ function fitToBox(controls, camera, box) {
   controls.update();
 }
 
-// Render del modelo paramétrico en Three.js
 async function renderParametricPreview() {
   if (!state.model) return;
-
   const v = await ensureThreeViewer();
   if (!v) return;
 
   const { scene, camera, controls } = v;
 
-  // limpiar preview anterior
   const old = scene.getObjectByName("RMM_PREVIEW");
   if (old) scene.remove(old);
 
@@ -312,21 +226,11 @@ async function renderParametricPreview() {
   group.name = "RMM_PREVIEW";
 
   const { span, length, height, frames } = state.model.building;
-
   const halfSpan = span / 2;
   const step = frames > 1 ? length / (frames - 1) : length;
 
-  const matCol = new THREE.MeshStandardMaterial({
-    color: 0x3b82f6,
-    metalness: 0.25,
-    roughness: 0.6,
-  });
-
-  const matBeam = new THREE.MeshStandardMaterial({
-    color: 0xf9b64c,
-    metalness: 0.25,
-    roughness: 0.55,
-  });
+  const matCol = new THREE.MeshStandardMaterial({ color: 0x3b82f6, metalness: 0.25, roughness: 0.6 });
+  const matBeam = new THREE.MeshStandardMaterial({ color: 0xf9b64c, metalness: 0.25, roughness: 0.55 });
 
   const colSize = Math.max(0.18, span * 0.007);
   const beamSize = Math.max(0.15, span * 0.006);
@@ -352,17 +256,108 @@ async function renderParametricPreview() {
 
   scene.add(group);
 
-  // encuadre
   const box = new THREE.Box3().setFromObject(group);
   fitToBox(controls, camera, box);
 
-  const s = qs("#ifc-status");
-  if (s) s.textContent = "Preview 3D generado (modelo paramétrico).";
+  qs("#viewer-status").textContent = "Preview activo";
+  qs("#ifc-status").textContent = "Preview 3D generado (sin IFC.js).";
 }
 
 // =====================================================
-// WIZARD
+// IFC (OPCIONAL) - SOLO SI CARGAS IFC
 // =====================================================
+async function loadIfcViewerModule() {
+  const urls = [
+    "https://esm.sh/web-ifc-viewer@1.0.218",
+    "https://cdn.jsdelivr.net/npm/web-ifc-viewer@1.0.218/dist/ifc-viewer.es.js",
+    "https://unpkg.com/web-ifc-viewer@1.0.218/dist/ifc-viewer.es.js",
+  ];
+  let lastErr = null;
+  for (const url of urls) {
+    try { return await import(url); }
+    catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error("No se pudo cargar IFC Viewer");
+}
+
+async function ensureIfcViewer() {
+  if (state.ifcViewer) return state.ifcViewer;
+
+  const container = qs("#ifc-viewer");
+  if (!container) return null;
+
+  try {
+    const mod = await loadIfcViewerModule();
+    const IfcViewerAPI = mod?.IfcViewerAPI || mod?.default?.IfcViewerAPI;
+    if (!IfcViewerAPI) throw new Error("No se encontró IfcViewerAPI.");
+
+    // OJO: IFC reemplaza el canvas del preview
+    container.innerHTML = "";
+
+    const viewer = new IfcViewerAPI({
+      container,
+      backgroundColor: { r: 0.04, g: 0.07, b: 0.13, a: 1 },
+    });
+
+    viewer.grid.setGrid();
+    viewer.axes.setAxes();
+    viewer.context.renderer.postProduction.active = true;
+
+    state.ifcViewer = viewer;
+    qs("#viewer-status").textContent = "IFC listo";
+    return viewer;
+  } catch (err) {
+    // ✅ NO tapamos el visor con el error: volvemos al preview
+    state.ifcViewer = null;
+    state.ifcLoaded = false;
+
+    await ensureThreeViewer();
+    if (state.model) await renderParametricPreview();
+
+    qs("#viewer-status").textContent = "Preview activo";
+    qs("#ifc-status").textContent =
+      "IFC.js no cargó desde CDN. El visor queda en modo Preview 3D (gratis).";
+    return null;
+  }
+}
+
+async function loadIFCFile(file) {
+  qs("#ifc-status").textContent = `Cargando IFC: ${file.name}...`;
+
+  const viewer = await ensureIfcViewer();
+  if (!viewer) return;
+
+  try {
+    const url = URL.createObjectURL(file);
+    await viewer.IFC.loadIfcUrl(url);
+    URL.revokeObjectURL(url);
+
+    state.ifcLoaded = true;
+    qs("#viewer-status").textContent = "IFC cargado";
+    qs("#ifc-status").textContent = `IFC cargado: ${file.name}`;
+  } catch (err) {
+    qs("#ifc-status").textContent = `Error cargando IFC: ${err?.message || err}`;
+    qs("#viewer-status").textContent = "Error";
+  }
+}
+
+async function resetViewer() {
+  const container = qs("#ifc-viewer");
+  if (!container) return;
+
+  container.innerHTML = "";
+  state.ifcViewer = null;
+  state.ifcLoaded = false;
+  three = null;
+
+  await ensureThreeViewer();
+  if (state.model) await renderParametricPreview();
+
+  qs("#viewer-status").textContent = "Preview activo";
+  qs("#ifc-status").textContent = "Visor reiniciado (modo Preview).";
+}
+
+// -------------------- WIZARD --------------------
 function bindWizard() {
   const form = qs("#wizard-form");
   if (!form) return;
@@ -386,43 +381,16 @@ function bindWizard() {
     if (prev) goStep(state.wizardStep - 1);
   });
 
-  form.addEventListener("input", () => {
-    const fd = new FormData(form);
-    const data = Object.fromEntries(fd.entries());
-    const summary = qs("#wizard-summary");
-    if (summary) {
-      summary.innerHTML = `
-        <div><strong>Tipo:</strong> ${data.tipo || "-"}</div>
-        <div><strong>Ubicación:</strong> ${data.ubicacion || "-"}</div>
-        <div><strong>Ancho:</strong> ${data.ancho || "-"} m</div>
-        <div><strong>Largo:</strong> ${data.largo || "-"} m</div>
-        <div><strong>Altura:</strong> ${data.altura || "-"} m</div>
-        <div><strong>Pórticos:</strong> ${data.porticos || "-"}</div>
-        <div><strong>Pórtico:</strong> ${data.portico || "-"}</div>
-        <div><strong>Perfil:</strong> ${data.perfil || "-"}</div>
-        <div><strong>Cubierta:</strong> ${data.cubierta || "-"}</div>
-        <div><strong>Cerramiento:</strong> ${data.cerramiento || "-"}</div>
-      `;
-    }
-  });
-
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
     const data = Object.fromEntries(fd.entries());
 
-    // 1) llevar wizard -> industrial inputs
     setIndustrialInputsFromWizard(data);
-
-    // 2) generar modelo paramétrico
     generateModelFromIndustrial();
-
-    // 3) ver resultados
     renderBOMFromModel();
     refreshKPIs();
     runRules();
-
-    // 4) dibujar preview 3D
     await renderParametricPreview();
 
     qs("#wizard-status").textContent = "Modelo generado. Revisá la vista industrial.";
@@ -444,18 +412,12 @@ function setIndustrialInputsFromWizard(data) {
   updateIndustrialLabels();
 }
 
-// =====================================================
-// INDUSTRIAL CONTROLS
-// =====================================================
+// -------------------- INDUSTRIAL CONTROLS --------------------
 function updateIndustrialLabels() {
-  const a = qs("#ind-span-value");
-  const b = qs("#ind-length-value");
-  const c = qs("#ind-height-value");
-  const d = qs("#ind-frames-value");
-  if (a && qs("#ind-span")) a.textContent = qs("#ind-span").value;
-  if (b && qs("#ind-length")) b.textContent = qs("#ind-length").value;
-  if (c && qs("#ind-height")) c.textContent = qs("#ind-height").value;
-  if (d && qs("#ind-frames")) d.textContent = qs("#ind-frames").value;
+  qs("#ind-span-value").textContent = qs("#ind-span").value;
+  qs("#ind-length-value").textContent = qs("#ind-length").value;
+  qs("#ind-height-value").textContent = qs("#ind-height").value;
+  qs("#ind-frames-value").textContent = qs("#ind-frames").value;
 }
 
 function bindIndustrialControls() {
@@ -477,11 +439,10 @@ function bindIndustrialControls() {
       generateModelFromIndustrial();
       await renderParametricPreview();
     }
-
     if (action === "export-bom") exportBOM();
     if (action === "export-json") exportJSON();
     if (action === "run-rules") runRules();
-    if (action === "reset-viewer") resetViewer();
+    if (action === "reset-viewer") await resetViewer();
     if (action === "save-local") saveLocalVersion();
     if (action === "load-local") loadLocalVersion();
     if (action === "connect-supabase") connectSupabase();
@@ -499,9 +460,7 @@ function bindIndustrialControls() {
   }
 }
 
-// =====================================================
-// MODELO PARAMÉTRICO (JSON)
-// =====================================================
+// -------------------- MODELO PARAMÉTRICO --------------------
 function generateModelFromIndustrial() {
   const span = Number(qs("#ind-span")?.value || 24);
   const length = Number(qs("#ind-length")?.value || 60);
@@ -517,7 +476,6 @@ function generateModelFromIndustrial() {
     elements: [],
   };
 
-  // Generación simple (BOM + reglas)
   for (let i = 0; i < frames; i++) {
     model.elements.push({ id: `COL-L-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
     model.elements.push({ id: `COL-R-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
@@ -529,17 +487,9 @@ function generateModelFromIndustrial() {
 
   state.model = model;
 
-  const gs = qs("#geometry-status");
-  if (gs) gs.textContent = "Geometría calculada (modelo paramétrico).";
-
-  const kv = qs("#kpi-version");
-  if (kv) kv.textContent = String(state.version);
-
-  renderBOMFromModel();
-  refreshKPIs();
-
-  const s = qs("#ifc-status");
-  if (s) s.textContent = "Modelo generado (preview). Próximo: IFC real con backend.";
+  qs("#geometry-status").textContent = "Geometría calculada (modelo paramétrico).";
+  qs("#kpi-version").textContent = String(state.version);
+  qs("#ifc-status").textContent = "Modelo generado (Preview 3D).";
 }
 
 function computeTotals(model) {
@@ -551,15 +501,11 @@ function computeTotals(model) {
 
 function refreshKPIs() {
   const { count, weight } = computeTotals(state.model);
-  const a = qs("#kpi-elements");
-  const b = qs("#kpi-weight");
-  if (a) a.textContent = fmt(count);
-  if (b) b.textContent = fmt(weight);
+  qs("#kpi-elements").textContent = fmt(count);
+  qs("#kpi-weight").textContent = fmt(weight);
 }
 
-// =====================================================
-// BOM TABLE
-// =====================================================
+// -------------------- BOM TABLE --------------------
 function renderBOMFromModel() {
   const tbody = qs("#materials-table");
   if (!tbody) return;
@@ -580,37 +526,25 @@ function renderBOMFromModel() {
 
   const rows = [...map.values()].sort((a, b) => a.type.localeCompare(b.type));
   tbody.innerHTML = rows
-    .map((r) => {
-      return `
+    .map((r) => `
       <tr>
         <td>${r.type}</td>
         <td>${fmt(r.qty)}</td>
         <td>${fmt(Math.round(r.weightKg))}</td>
         <td>OK</td>
       </tr>
-    `;
-    })
+    `)
     .join("");
 }
 
-// =====================================================
-// EXPORTS
-// =====================================================
+// -------------------- EXPORTS --------------------
 function exportJSON() {
-  if (!state.model) {
-    const s = qs("#ifc-status");
-    if (s) s.textContent = "No hay modelo para exportar.";
-    return;
-  }
+  if (!state.model) return (qs("#ifc-status").textContent = "No hay modelo para exportar.");
   downloadText(`rmm_model_v${state.version}.json`, JSON.stringify(state.model, null, 2), "application/json");
 }
 
 function exportBOM() {
-  if (!state.model) {
-    const s = qs("#ifc-status");
-    if (s) s.textContent = "No hay modelo para exportar.";
-    return;
-  }
+  if (!state.model) return (qs("#ifc-status").textContent = "No hay modelo para exportar.");
 
   const map = new Map();
   for (const e of state.model.elements) {
@@ -627,9 +561,9 @@ function exportBOM() {
   downloadText(`rmm_bom_v${state.version}.csv`, header + lines, "text/csv");
 }
 
-// =====================================================
-// REGLAS (VALIDACIONES)
-// =====================================================
+// -------------------- REGLAS --------------------
+function rule(id, name, ok, msg) { return { id, name, ok: Boolean(ok), msg: msg || "" }; }
+
 function runRules() {
   const summary = qs("#rules-summary");
   const list = qs("#rules-list");
@@ -643,7 +577,6 @@ function runRules() {
 
   const b = state.model.building;
   const results = [];
-
   results.push(rule("R1", "Dimensiones mínimas", b.span >= 10 && b.length >= 20 && b.height >= 4, "Ancho/Largo/Altura fuera de rango mínimo."));
   results.push(rule("R2", "Cantidad de pórticos", b.frames >= 4 && b.frames <= 24, "Cantidad de pórticos fuera de rango."));
   results.push(rule("R3", "Relación esbeltez (demo)", b.height / b.span <= 1.0, "Altura muy grande respecto a la luz (revisar)."));
@@ -653,162 +586,34 @@ function runRules() {
   summary.textContent = `Validaciones: ${ok}/${results.length} OK`;
 
   list.innerHTML = results
-    .map(
-      (r) => `
+    .map((r) => `
       <div class="rule-item">
         <strong>${r.id} — ${r.name}</strong>
         <div>${r.ok ? "✅ OK" : "⚠️ Revisar"}</div>
         ${r.ok ? "" : `<div class="helper">${r.msg}</div>`}
       </div>
-    `
-    )
+    `)
     .join("");
 }
 
-function rule(id, name, ok, msg) {
-  return { id, name, ok: Boolean(ok), msg: msg || "" };
-}
-
-// =====================================================
-// IFC VIEWER (IFC.js) - OPCIONAL (solo si cargas un IFC)
-// =====================================================
-
-// Loader con fallback de CDN + versión fija (GitHub Pages friendly)
-async function loadIfcViewerModule() {
-  const urls = [
-    "https://esm.sh/web-ifc-viewer@1.0.218",
-    "https://cdn.jsdelivr.net/npm/web-ifc-viewer@1.0.218/dist/ifc-viewer.es.js",
-    "https://unpkg.com/web-ifc-viewer@1.0.218/dist/ifc-viewer.es.js",
-  ];
-
-  let lastErr = null;
-  for (const url of urls) {
-    try {
-      return await import(url);
-    } catch (e) {
-      lastErr = e;
-      console.warn("[IFC] Falló CDN:", url, e);
-    }
-  }
-  throw lastErr || new Error("No se pudo cargar IFC Viewer");
-}
-
-async function ensureIfcViewer() {
-  if (state.ifcViewer) return state.ifcViewer;
-
-  const container = qs("#ifc-viewer");
-  const status = qs("#viewer-status");
-  if (!container) return null;
-
-  try {
-    const mod = await loadIfcViewerModule();
-    const IfcViewerAPI = mod?.IfcViewerAPI || mod?.default?.IfcViewerAPI;
-    if (!IfcViewerAPI) throw new Error("No se encontró IfcViewerAPI en el módulo.");
-
-    // IMPORTANTE: IFC.js va a reutilizar el mismo contenedor
-    // y va a reemplazar el canvas actual.
-    container.innerHTML = "";
-
-    const viewer = new IfcViewerAPI({
-      container,
-      backgroundColor: { r: 0.04, g: 0.07, b: 0.13, a: 1 },
-    });
-
-    viewer.grid.setGrid();
-    viewer.axes.setAxes();
-    viewer.context.renderer.postProduction.active = true;
-
-    state.ifcViewer = viewer;
-    if (status) status.textContent = "IFC listo";
-    return viewer;
-  } catch (err) {
-    container.innerHTML = `
-      <div style="padding:16px;color:#e2e8f0;font-weight:700;">
-        No se pudo cargar IFC.js desde CDN.<br/>
-        <span style="font-weight:400;color:#94a3b8;">
-          Motivo: ${String(err?.message || err)}<br/>
-          Solución industrial: instalar IFC.js por npm (Vite) y empaquetar.
-        </span>
-      </div>
-    `;
-    if (status) status.textContent = "Error IFC";
-    return null;
-  }
-}
-
-async function loadIFCFile(file) {
-  const viewer = await ensureIfcViewer();
-  if (!viewer) return;
-
-  qs("#ifc-status").textContent = `Cargando IFC: ${file.name}...`;
-
-  try {
-    const url = URL.createObjectURL(file);
-    await viewer.IFC.loadIfcUrl(url);
-    URL.revokeObjectURL(url);
-
-    state.ifcLoaded = true;
-    qs("#viewer-status").textContent = "IFC cargado";
-    qs("#ifc-status").textContent = `IFC cargado: ${file.name}`;
-  } catch (err) {
-    qs("#ifc-status").textContent = `Error cargando IFC: ${err?.message || err}`;
-    qs("#viewer-status").textContent = "Error";
-  }
-}
-
-async function resetViewer() {
-  const container = qs("#ifc-viewer");
-  if (!container) return;
-
-  // reset: vuelve al visor paramétrico (Three.js)
-  container.innerHTML = "";
-  state.ifcViewer = null;
-  state.ifcLoaded = false;
-
-  qs("#viewer-status").textContent = "Visor activo";
-  qs("#ifc-status").textContent = "Visor reiniciado (modo preview).";
-
-  // recrea el viewer three y vuelve a dibujar el modelo si existe
-  three = null;
-  await ensureThreeViewer();
-  if (state.model) await renderParametricPreview();
-}
-
-// =====================================================
-// VERSIONADO LOCAL
-// =====================================================
+// -------------------- LOCAL VERSIONING --------------------
 function localKey() {
   const name = qs("#project-name")?.value?.trim() || "rmm_project";
   return `rmm_versions_${name}`;
 }
-
 function saveLocalVersion() {
-  if (!state.model) {
-    qs("#persistence-status").textContent = "No hay modelo para guardar.";
-    return;
-  }
-
+  if (!state.model) return (qs("#persistence-status").textContent = "No hay modelo para guardar.");
   const key = localKey();
   const current = JSON.parse(localStorage.getItem(key) || "[]");
-  const entry = {
-    savedAt: nowISO(),
-    version: state.version,
-    model: state.model,
-  };
-  current.unshift(entry);
+  current.unshift({ savedAt: nowISO(), version: state.version, model: state.model });
   localStorage.setItem(key, JSON.stringify(current.slice(0, 50)));
-
   qs("#persistence-status").textContent = `Versión guardada localmente (v${state.version}).`;
   renderLocalVersions();
 }
-
 function loadLocalVersion() {
   const key = localKey();
   const current = JSON.parse(localStorage.getItem(key) || "[]");
-  if (!current.length) {
-    qs("#persistence-status").textContent = "No hay versiones guardadas.";
-    return;
-  }
+  if (!current.length) return (qs("#persistence-status").textContent = "No hay versiones guardadas.");
   const latest = current[0];
   state.model = latest.model;
   state.version = latest.version || state.version;
@@ -818,27 +623,17 @@ function loadLocalVersion() {
   refreshKPIs();
   runRules();
   renderLocalVersions();
-
-  // redibuja preview
   renderParametricPreview();
 }
-
 function renderLocalVersions() {
   const box = qs("#version-list");
   if (!box) return;
-
   const key = localKey();
   const current = JSON.parse(localStorage.getItem(key) || "[]");
-
-  if (!current.length) {
-    box.innerHTML = "";
-    return;
-  }
-
+  if (!current.length) return (box.innerHTML = "");
   box.innerHTML = current
     .slice(0, 8)
-    .map(
-      (v) => `
+    .map((v) => `
       <div class="rule-item">
         <strong>v${v.version} — ${new Date(v.savedAt).toLocaleString("es-AR")}</strong>
         <div class="button-row">
@@ -846,27 +641,18 @@ function renderLocalVersions() {
           <button class="ghost" data-action="export-json" data-tooltip="Descargar el modelo actual en JSON">Exportar JSON</button>
         </div>
       </div>
-    `
-    )
+    `)
     .join("");
 }
 
-// =====================================================
-// SUPABASE (opcional)
-// =====================================================
+// -------------------- SUPABASE (opcional) --------------------
 let supa = null;
-
 function connectSupabase() {
   const url = qs("#supabase-url")?.value?.trim();
   const key = qs("#supabase-key")?.value?.trim();
   const status = qs("#supabase-status");
   if (!status) return;
-
-  if (!url || !key || !window.supabase) {
-    status.textContent = "Falta Supabase URL o ANON KEY.";
-    return;
-  }
-
+  if (!url || !key || !window.supabase) return (status.textContent = "Falta Supabase URL o ANON KEY.");
   try {
     supa = window.supabase.createClient(url, key);
     status.textContent = "Conectado. (Ahora podés guardar/cargar).";
@@ -874,75 +660,40 @@ function connectSupabase() {
     status.textContent = `Error conectando: ${err?.message || err}`;
   }
 }
-
 async function saveRemoteVersion() {
   const status = qs("#supabase-status");
   if (!status) return;
-  if (!supa) {
-    status.textContent = "No estás conectado a Supabase.";
-    return;
-  }
-  if (!state.model) {
-    status.textContent = "No hay modelo para guardar.";
-    return;
-  }
+  if (!supa) return (status.textContent = "No estás conectado a Supabase.");
+  if (!state.model) return (status.textContent = "No hay modelo para guardar.");
 
   const { data: auth } = await supa.auth.getUser();
   const userId = auth?.user?.id;
-  if (!userId) {
-    status.textContent = "Necesitás iniciar sesión real en Supabase Auth para guardar.";
-    return;
-  }
+  if (!userId) return (status.textContent = "Necesitás iniciar sesión real en Supabase Auth para guardar.");
 
   try {
     const projectName = qs("#project-name")?.value?.trim() || "Proyecto";
     const clientName = qs("#project-client")?.value?.trim() || null;
 
-    const payload = {
-      owner_id: userId,
-      project_name: projectName,
-      client_name: clientName,
-      bim_json: state.model,
-    };
-
+    const payload = { owner_id: userId, project_name: projectName, client_name: clientName, bim_json: state.model };
     const { error } = await supa.from("project_versions").insert(payload);
     status.textContent = error ? `Error: ${error.message}` : "Versión guardada en Supabase.";
   } catch (err) {
     status.textContent = `Error: ${err?.message || err}`;
   }
 }
-
 async function loadRemoteVersion() {
   const status = qs("#supabase-status");
   if (!status) return;
-  if (!supa) {
-    status.textContent = "No estás conectado a Supabase.";
-    return;
-  }
+  if (!supa) return (status.textContent = "No estás conectado a Supabase.");
 
   const { data: auth } = await supa.auth.getUser();
   const userId = auth?.user?.id;
-  if (!userId) {
-    status.textContent = "Necesitás iniciar sesión real en Supabase Auth para cargar.";
-    return;
-  }
+  if (!userId) return (status.textContent = "Necesitás iniciar sesión real en Supabase Auth para cargar.");
 
   try {
-    const { data, error } = await supa
-      .from("project_versions")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    if (error) {
-      status.textContent = `Error: ${error.message}`;
-      return;
-    }
-
-    if (!data?.length) {
-      status.textContent = "No hay versiones en Supabase.";
-      return;
-    }
+    const { data, error } = await supa.from("project_versions").select("*").order("created_at", { ascending: false }).limit(1);
+    if (error) return (status.textContent = `Error: ${error.message}`);
+    if (!data?.length) return (status.textContent = "No hay versiones en Supabase.");
 
     const latest = data[0];
     state.model = latest.bim_json;
@@ -952,17 +703,13 @@ async function loadRemoteVersion() {
     renderBOMFromModel();
     refreshKPIs();
     runRules();
-
-    // redibuja preview
     await resetViewer();
   } catch (err) {
     status.textContent = `Error: ${err?.message || err}`;
   }
 }
 
-// =====================================================
-// INIT
-// =====================================================
+// -------------------- INIT --------------------
 async function init() {
   enhanceTooltips();
   bindModals();
@@ -971,7 +718,8 @@ async function init() {
   bindWizard();
   bindIndustrialControls();
 
-  // ✅ Inicializa el visor PREVIEW (Three.js) siempre (así no queda vacío)
+  // ✅ Importante: NO intentamos IFC en init
+  // Siempre preview (Three.js)
   await ensureThreeViewer();
 
   renderPermissions(null);
@@ -980,10 +728,9 @@ async function init() {
   runRules();
   renderLocalVersions();
 
-  // Si ya tenés modelo por alguna carga previa (raro), dibujalo
+  // si ya hay modelo (por carga local), mostrarlo
   if (state.model) await renderParametricPreview();
+  else qs("#ifc-status").textContent = "Preview listo. Generá un modelo para verlo.";
 }
 
-window.addEventListener("DOMContentLoaded", () => {
-  init();
-});
+window.addEventListener("DOMContentLoaded", () => { init(); });
