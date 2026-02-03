@@ -133,29 +133,42 @@ function bindAuth() {
 }
 
 // =====================================================
-// THREE.JS VIEWER (PREVIEW) - SIEMPRE ACTIVO
+// THREE.JS VIEWER (PREVIEW) - SIEMPRE ACTIVO (GitHub Pages friendly)
 // =====================================================
 let three = null;
+
+async function importThreeESM() {
+  // ESM estable para browser: esm.sh (muy compatible con GitHub Pages)
+  // Si alguna vez falla, podemos agregar fallback a skypack.
+  const THREE = await import("https://esm.sh/three@0.158.0");
+  const { OrbitControls } = await import("https://esm.sh/three@0.158.0/examples/jsm/controls/OrbitControls.js");
+  return { THREE, OrbitControls };
+}
 
 async function ensureThreeViewer() {
   if (three) return three;
 
-  try {
-    await import("https://unpkg.com/three@0.158.0/build/three.min.js");
-    await import("https://unpkg.com/three@0.158.0/examples/js/controls/OrbitControls.js");
-  } catch (err) {
-    const container = qs("#ifc-viewer");
-    if (container) container.innerHTML = `<div style="padding:16px;color:#e2e8f0;">Error cargando Three.js: ${String(err?.message || err)}</div>`;
-    return null;
-  }
-
   const container = qs("#ifc-viewer");
   if (!container) return null;
+
+  let THREE, OrbitControls;
+  try {
+    const mod = await importThreeESM();
+    THREE = mod.THREE;
+    OrbitControls = mod.OrbitControls;
+  } catch (err) {
+    container.innerHTML = `<div style="padding:16px;color:#e2e8f0;font-weight:700;">
+      No se pudo cargar Three.js desde CDN.<br/>
+      <span style="font-weight:400;color:#94a3b8;">Motivo: ${String(err?.message || err)}</span>
+    </div>`;
+    qs("#viewer-status").textContent = "Error 3D";
+    return null;
+  }
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0b1220);
 
-  const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 2000);
+  const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 5000);
   camera.position.set(30, 25, 30);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -165,8 +178,9 @@ async function ensureThreeViewer() {
   container.innerHTML = "";
   container.appendChild(renderer.domElement);
 
-  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
+  controls.dampingFactor = 0.06;
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
   const dir = new THREE.DirectionalLight(0xffffff, 0.9);
@@ -174,7 +188,7 @@ async function ensureThreeViewer() {
   scene.add(dir);
 
   scene.add(new THREE.GridHelper(200, 200));
-  scene.add(new THREE.AxesHelper(5));
+  scene.add(new THREE.AxesHelper(6));
 
   function animate() {
     requestAnimationFrame(animate);
@@ -189,14 +203,12 @@ async function ensureThreeViewer() {
     renderer.setSize(container.clientWidth, container.clientHeight);
   });
 
-  three = { scene, camera, renderer, controls };
-
-  const vs = qs("#viewer-status");
-  if (vs) vs.textContent = "Preview activo";
+  three = { THREE, OrbitControls, scene, camera, renderer, controls };
+  qs("#viewer-status").textContent = "Preview activo";
   return three;
 }
 
-function fitToBox(controls, camera, box) {
+function fitToBox(THREE, controls, camera, box) {
   const size = new THREE.Vector3();
   const center = new THREE.Vector3();
   box.getSize(size);
@@ -217,7 +229,7 @@ async function renderParametricPreview() {
   const v = await ensureThreeViewer();
   if (!v) return;
 
-  const { scene, camera, controls } = v;
+  const { THREE, scene, camera, controls } = v;
 
   const old = scene.getObjectByName("RMM_PREVIEW");
   if (old) scene.remove(old);
@@ -257,14 +269,14 @@ async function renderParametricPreview() {
   scene.add(group);
 
   const box = new THREE.Box3().setFromObject(group);
-  fitToBox(controls, camera, box);
+  fitToBox(THREE, controls, camera, box);
 
   qs("#viewer-status").textContent = "Preview activo";
   qs("#ifc-status").textContent = "Preview 3D generado (sin IFC.js).";
 }
 
 // =====================================================
-// IFC (OPCIONAL) - SOLO SI CARGAS IFC
+// IFC (OPCIONAL) - lo dejamos pero NO es requisito para preview
 // =====================================================
 async function loadIfcViewerModule() {
   const urls = [
@@ -274,8 +286,7 @@ async function loadIfcViewerModule() {
   ];
   let lastErr = null;
   for (const url of urls) {
-    try { return await import(url); }
-    catch (e) { lastErr = e; }
+    try { return await import(url); } catch (e) { lastErr = e; }
   }
   throw lastErr || new Error("No se pudo cargar IFC Viewer");
 }
@@ -291,7 +302,6 @@ async function ensureIfcViewer() {
     const IfcViewerAPI = mod?.IfcViewerAPI || mod?.default?.IfcViewerAPI;
     if (!IfcViewerAPI) throw new Error("No se encontró IfcViewerAPI.");
 
-    // OJO: IFC reemplaza el canvas del preview
     container.innerHTML = "";
 
     const viewer = new IfcViewerAPI({
@@ -307,7 +317,6 @@ async function ensureIfcViewer() {
     qs("#viewer-status").textContent = "IFC listo";
     return viewer;
   } catch (err) {
-    // ✅ NO tapamos el visor con el error: volvemos al preview
     state.ifcViewer = null;
     state.ifcLoaded = false;
 
@@ -315,15 +324,13 @@ async function ensureIfcViewer() {
     if (state.model) await renderParametricPreview();
 
     qs("#viewer-status").textContent = "Preview activo";
-    qs("#ifc-status").textContent =
-      "IFC.js no cargó desde CDN. El visor queda en modo Preview 3D (gratis).";
+    qs("#ifc-status").textContent = "IFC.js no cargó. El visor queda en Preview 3D.";
     return null;
   }
 }
 
 async function loadIFCFile(file) {
   qs("#ifc-status").textContent = `Cargando IFC: ${file.name}...`;
-
   const viewer = await ensureIfcViewer();
   if (!viewer) return;
 
@@ -443,11 +450,6 @@ function bindIndustrialControls() {
     if (action === "export-json") exportJSON();
     if (action === "run-rules") runRules();
     if (action === "reset-viewer") await resetViewer();
-    if (action === "save-local") saveLocalVersion();
-    if (action === "load-local") loadLocalVersion();
-    if (action === "connect-supabase") connectSupabase();
-    if (action === "save-remote") saveRemoteVersion();
-    if (action === "load-remote") loadRemoteVersion();
   });
 
   const ifcInput = qs("#ifc-file");
@@ -542,7 +544,6 @@ function exportJSON() {
   if (!state.model) return (qs("#ifc-status").textContent = "No hay modelo para exportar.");
   downloadText(`rmm_model_v${state.version}.json`, JSON.stringify(state.model, null, 2), "application/json");
 }
-
 function exportBOM() {
   if (!state.model) return (qs("#ifc-status").textContent = "No hay modelo para exportar.");
 
@@ -596,119 +597,6 @@ function runRules() {
     .join("");
 }
 
-// -------------------- LOCAL VERSIONING --------------------
-function localKey() {
-  const name = qs("#project-name")?.value?.trim() || "rmm_project";
-  return `rmm_versions_${name}`;
-}
-function saveLocalVersion() {
-  if (!state.model) return (qs("#persistence-status").textContent = "No hay modelo para guardar.");
-  const key = localKey();
-  const current = JSON.parse(localStorage.getItem(key) || "[]");
-  current.unshift({ savedAt: nowISO(), version: state.version, model: state.model });
-  localStorage.setItem(key, JSON.stringify(current.slice(0, 50)));
-  qs("#persistence-status").textContent = `Versión guardada localmente (v${state.version}).`;
-  renderLocalVersions();
-}
-function loadLocalVersion() {
-  const key = localKey();
-  const current = JSON.parse(localStorage.getItem(key) || "[]");
-  if (!current.length) return (qs("#persistence-status").textContent = "No hay versiones guardadas.");
-  const latest = current[0];
-  state.model = latest.model;
-  state.version = latest.version || state.version;
-
-  qs("#persistence-status").textContent = `Versión cargada (v${state.version}).`;
-  renderBOMFromModel();
-  refreshKPIs();
-  runRules();
-  renderLocalVersions();
-  renderParametricPreview();
-}
-function renderLocalVersions() {
-  const box = qs("#version-list");
-  if (!box) return;
-  const key = localKey();
-  const current = JSON.parse(localStorage.getItem(key) || "[]");
-  if (!current.length) return (box.innerHTML = "");
-  box.innerHTML = current
-    .slice(0, 8)
-    .map((v) => `
-      <div class="rule-item">
-        <strong>v${v.version} — ${new Date(v.savedAt).toLocaleString("es-AR")}</strong>
-        <div class="button-row">
-          <button class="ghost" data-action="load-local" data-tooltip="Cargar la última versión local (demo)">Cargar última</button>
-          <button class="ghost" data-action="export-json" data-tooltip="Descargar el modelo actual en JSON">Exportar JSON</button>
-        </div>
-      </div>
-    `)
-    .join("");
-}
-
-// -------------------- SUPABASE (opcional) --------------------
-let supa = null;
-function connectSupabase() {
-  const url = qs("#supabase-url")?.value?.trim();
-  const key = qs("#supabase-key")?.value?.trim();
-  const status = qs("#supabase-status");
-  if (!status) return;
-  if (!url || !key || !window.supabase) return (status.textContent = "Falta Supabase URL o ANON KEY.");
-  try {
-    supa = window.supabase.createClient(url, key);
-    status.textContent = "Conectado. (Ahora podés guardar/cargar).";
-  } catch (err) {
-    status.textContent = `Error conectando: ${err?.message || err}`;
-  }
-}
-async function saveRemoteVersion() {
-  const status = qs("#supabase-status");
-  if (!status) return;
-  if (!supa) return (status.textContent = "No estás conectado a Supabase.");
-  if (!state.model) return (status.textContent = "No hay modelo para guardar.");
-
-  const { data: auth } = await supa.auth.getUser();
-  const userId = auth?.user?.id;
-  if (!userId) return (status.textContent = "Necesitás iniciar sesión real en Supabase Auth para guardar.");
-
-  try {
-    const projectName = qs("#project-name")?.value?.trim() || "Proyecto";
-    const clientName = qs("#project-client")?.value?.trim() || null;
-
-    const payload = { owner_id: userId, project_name: projectName, client_name: clientName, bim_json: state.model };
-    const { error } = await supa.from("project_versions").insert(payload);
-    status.textContent = error ? `Error: ${error.message}` : "Versión guardada en Supabase.";
-  } catch (err) {
-    status.textContent = `Error: ${err?.message || err}`;
-  }
-}
-async function loadRemoteVersion() {
-  const status = qs("#supabase-status");
-  if (!status) return;
-  if (!supa) return (status.textContent = "No estás conectado a Supabase.");
-
-  const { data: auth } = await supa.auth.getUser();
-  const userId = auth?.user?.id;
-  if (!userId) return (status.textContent = "Necesitás iniciar sesión real en Supabase Auth para cargar.");
-
-  try {
-    const { data, error } = await supa.from("project_versions").select("*").order("created_at", { ascending: false }).limit(1);
-    if (error) return (status.textContent = `Error: ${error.message}`);
-    if (!data?.length) return (status.textContent = "No hay versiones en Supabase.");
-
-    const latest = data[0];
-    state.model = latest.bim_json;
-    state.version = state.model?.meta?.version || state.version;
-
-    status.textContent = "Versión cargada desde Supabase.";
-    renderBOMFromModel();
-    refreshKPIs();
-    runRules();
-    await resetViewer();
-  } catch (err) {
-    status.textContent = `Error: ${err?.message || err}`;
-  }
-}
-
 // -------------------- INIT --------------------
 async function init() {
   enhanceTooltips();
@@ -718,19 +606,15 @@ async function init() {
   bindWizard();
   bindIndustrialControls();
 
-  // ✅ Importante: NO intentamos IFC en init
-  // Siempre preview (Three.js)
+  // ✅ Importante: arrancar con preview 3D siempre
   await ensureThreeViewer();
 
   renderPermissions(null);
   renderBOMFromModel();
   refreshKPIs();
   runRules();
-  renderLocalVersions();
 
-  // si ya hay modelo (por carga local), mostrarlo
-  if (state.model) await renderParametricPreview();
-  else qs("#ifc-status").textContent = "Preview listo. Generá un modelo para verlo.";
+  qs("#ifc-status").textContent = "Preview listo. Generá un modelo para verlo.";
 }
 
 window.addEventListener("DOMContentLoaded", () => { init(); });
