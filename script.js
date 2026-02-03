@@ -239,6 +239,12 @@ function bindWizard() {
 
     // Generamos modelo base
     generateModelFromIndustrial();
+  renderBOMFromModel();
+  refreshKPIs();
+  qs("#ifc-status").textContent = "Modelo generado. (Próximo: export IFC real con backend).";
+
+  // ✅ NUEVO: dibuja algo en el visor
+  renderParametricPreview();
 
     qs("#wizard-status").textContent = "Modelo generado. Revisá la vista industrial.";
     qs("#industrial")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -257,6 +263,110 @@ function setIndustrialInputsFromWizard(data) {
   if (frames) frames.value = clamp(Number(data.porticos || 10), 4, 24);
 
   updateIndustrialLabels();
+}
+async function renderParametricPreview() {
+  if (!state.model) return;
+
+  const viewer = await ensureIfcViewer();
+  if (!viewer) return;
+
+  const THREE = viewer?.context?.getScene?.().constructor
+    ? null
+    : viewer?.context?.scene
+    ? viewer.context.scene.constructor
+    : null;
+
+  // IFC.js expone THREE como viewer.THREE en algunas versiones
+  const T = viewer.THREE || window.THREE;
+  if (!T) {
+    qs("#ifc-status").textContent =
+      "No pude acceder a THREE desde el visor. (Después lo hacemos con Vite/NPM para 100% estable)";
+    return;
+  }
+
+  const scene = viewer.context.scene;
+
+  // borrar preview anterior
+  const old = scene.getObjectByName("RMM_PREVIEW");
+  if (old) scene.remove(old);
+
+  const group = new T.Group();
+  group.name = "RMM_PREVIEW";
+
+  const { span, length, height, frames } = state.model.building;
+
+  // Coordenadas:
+  // X = ancho (span), Z = largo (length), Y = altura
+  const halfSpan = span / 2;
+  const step = frames > 1 ? length / (frames - 1) : length;
+
+  // Material (simple)
+  const matCol = new T.MeshStandardMaterial({ color: 0x3b82f6, metalness: 0.2, roughness: 0.6 });
+  const matBeam = new T.MeshStandardMaterial({ color: 0xf9b64c, metalness: 0.2, roughness: 0.6 });
+
+  // luces básicas (si no existen)
+  if (!scene.getObjectByName("RMM_LIGHTS")) {
+    const lights = new T.Group();
+    lights.name = "RMM_LIGHTS";
+    const amb = new T.AmbientLight(0xffffff, 0.6);
+    const dir = new T.DirectionalLight(0xffffff, 0.9);
+    dir.position.set(10, 20, 10);
+    lights.add(amb, dir);
+    scene.add(lights);
+  }
+
+  // dimensiones de perfiles “dummy” (solo visual)
+  const colSize = Math.max(0.12, span * 0.006); // escala relativa
+  const beamSize = Math.max(0.10, span * 0.005);
+
+  // geometrías
+  const colGeo = new T.BoxGeometry(colSize, height, colSize);
+  const beamGeo = new T.BoxGeometry(span, beamSize, beamSize);
+
+  for (let i = 0; i < frames; i++) {
+    const z = i * step;
+
+    // columna izquierda
+    const colL = new T.Mesh(colGeo, matCol);
+    colL.position.set(-halfSpan, height / 2, z);
+    group.add(colL);
+
+    // columna derecha
+    const colR = new T.Mesh(colGeo, matCol);
+    colR.position.set(halfSpan, height / 2, z);
+    group.add(colR);
+
+    // viga
+    const beam = new T.Mesh(beamGeo, matBeam);
+    beam.position.set(0, height, z);
+    group.add(beam);
+  }
+
+  scene.add(group);
+
+  // encuadrar cámara
+  try {
+    const box = new T.Box3().setFromObject(group);
+    const size = box.getSize(new T.Vector3());
+    const center = box.getCenter(new T.Vector3());
+    viewer.context.getCameraControls().fitToBox(box, true);
+
+    // pequeño ajuste para que quede centrado
+    viewer.context.getCameraControls().setLookAt(
+      center.x + size.x * 0.6,
+      center.y + size.y * 0.6,
+      center.z + size.z * 0.6,
+      center.x,
+      center.y,
+      center.z,
+      true
+    );
+  } catch {
+    // si algo cambia en la API, al menos deja el modelo en escena
+  }
+
+  qs("#viewer-status").textContent = "Preview 3D";
+  qs("#ifc-status").textContent = "Preview 3D generado (columnas + vigas).";
 }
 
 // -------------------- INDUSTRIAL CONTROLS --------------------
