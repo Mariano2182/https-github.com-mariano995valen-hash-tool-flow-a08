@@ -3,7 +3,7 @@
 // ✅ Preview paramétrico: columnas + techo (plano / 1 agua / 2 aguas)
 // ✅ Correas: SEGMENTADAS entre pórticos + siguiendo pendiente + separación real (m)
 // ✅ BOM + reglas + versionado local + Supabase opcional
-// ⚠️ IFC real: requiere bundling (Vite + ifc.js). En GH Pages sin bundler suele fallar por CORS/CDN.
+// ⚠️ IFC real: requiere bundling (Vite + ifc.js). En GH Pages sin bundler suele fallar.
 
 const qs = (sel, parent = document) => parent.querySelector(sel);
 const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
@@ -22,6 +22,7 @@ const state = {
   controls: null,
   viewerReady: false,
   animId: null,
+
   wizardStep: 1,
 };
 
@@ -160,7 +161,6 @@ function bindAuth() {
     if (ul) ul.innerHTML = "";
   });
 
-  // Magic link (opcional)
   document.addEventListener("click", async (e) => {
     const btn = e.target.closest('[data-action="magic-link"]');
     if (!btn) return;
@@ -235,18 +235,17 @@ function bindWizard() {
     const fd = new FormData(form);
     const data = Object.fromEntries(fd.entries());
 
-    // Volcar a industrial
     setIndustrialInputsFromWizard(data);
 
-    // Generar modelo + BOM + KPIs + Preview
     generateModelFromIndustrial();
     renderBOMFromModel();
     refreshKPIs();
+    runRules();
+
+    await renderParametricPreview();
 
     const ifcStatus = qs("#ifc-status");
     if (ifcStatus) ifcStatus.textContent = "Modelo generado. Vista 3D actualizada.";
-
-    await renderParametricPreview();
 
     const wz = qs("#wizard-status");
     if (wz) wz.textContent = "Modelo generado. Revisá la vista industrial.";
@@ -274,19 +273,15 @@ function updateIndustrialLabels() {
   const l = qs("#ind-length");
   const h = qs("#ind-height");
   const f = qs("#ind-frames");
-  const ps = qs("#ind-purlin-spacing");
 
   if (qs("#ind-span-value") && s) qs("#ind-span-value").textContent = s.value;
   if (qs("#ind-length-value") && l) qs("#ind-length-value").textContent = l.value;
   if (qs("#ind-height-value") && h) qs("#ind-height-value").textContent = h.value;
   if (qs("#ind-frames-value") && f) qs("#ind-frames-value").textContent = f.value;
-
-  // opcional (si existe)
-  if (qs("#ind-purlin-spacing-value") && ps) qs("#ind-purlin-spacing-value").textContent = ps.value;
 }
 
 function bindIndustrialControls() {
-  ["#ind-span", "#ind-length", "#ind-height", "#ind-frames", "#ind-purlin-spacing"].forEach((id) => {
+  ["#ind-span", "#ind-length", "#ind-height", "#ind-frames", "#ind-roof"].forEach((id) => {
     const el = qs(id);
     if (!el) return;
     el.addEventListener("input", updateIndustrialLabels);
@@ -305,8 +300,10 @@ function bindIndustrialControls() {
       generateModelFromIndustrial();
       renderBOMFromModel();
       refreshKPIs();
+      runRules();
       await renderParametricPreview();
     }
+
     if (action === "export-bom") exportBOM();
     if (action === "export-json") exportJSON();
     if (action === "run-rules") runRules();
@@ -318,13 +315,12 @@ function bindIndustrialControls() {
     if (action === "load-remote") loadRemoteVersion();
   });
 
-  // IFC input (en GH Pages sin bundler no lo cargamos: mostramos aviso)
+  // IFC input (en GH Pages sin bundler no lo cargamos: aviso)
   const ifcInput = qs("#ifc-file");
   if (ifcInput) {
     ifcInput.addEventListener("change", async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
-
       const ifcStatus = qs("#ifc-status");
       const viewerStatus = qs("#viewer-status");
       if (ifcStatus) {
@@ -343,6 +339,8 @@ function generateModelFromIndustrial() {
   const height = Number(qs("#ind-height")?.value || 8);
   const frames = Number(qs("#ind-frames")?.value || 10);
   const roof = qs("#ind-roof")?.value || "dos_aguas";
+
+  // ✅ para correas: separación real (m) (si no existe el input en el HTML, usa 1.50m)
   const purlinSpacing = Number(qs("#ind-purlin-spacing")?.value) || 1.5;
 
   state.version += 1;
@@ -353,12 +351,11 @@ function generateModelFromIndustrial() {
     elements: [],
   };
 
-  // Elementos base (BOM demo)
+  // BOM demo
   for (let i = 0; i < frames; i++) {
     model.elements.push({ id: `COL-L-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
     model.elements.push({ id: `COL-R-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
 
-    // “vigas/riostras” simplificadas: en dos aguas son 2 vigas por pórtico
     if (roof === "dos_aguas") {
       model.elements.push({ id: `RAF-L-${i + 1}`, type: "viga", qty: 1, length: span / 2, weightKg: (span / 2) * 55 });
       model.elements.push({ id: `RAF-R-${i + 1}`, type: "viga", qty: 1, length: span / 2, weightKg: (span / 2) * 55 });
@@ -367,30 +364,31 @@ function generateModelFromIndustrial() {
     }
   }
 
-  // Correas estimadas (BOM demo) — derivado de separación real
-  const roofLineLength =
-    roof === "dos_aguas" ? span / 2 : span; // simplificación para BOM
-  const purlinsPerRun = Math.max(2, Math.ceil(roofLineLength / purlinSpacing));
-  const purlinRuns = roof === "dos_aguas" ? 2 : 1;
-  const totalSegments = (frames - 1) * purlinsPerRun * purlinRuns;
+  // correas BOM demo (segmentadas entre pórticos)
+  const stepZ = frames > 1 ? length / (frames - 1) : length;
+  const roofLineLen = roof === "dos_aguas" ? span / 2 : span;
+  const purlinsPerSlope = Math.max(2, Math.ceil(roofLineLen / purlinSpacing));
+  const runs = roof === "dos_aguas" ? 2 : 1;
+  const totalSegments = Math.max(0, frames - 1) * purlinsPerSlope * runs;
 
   model.elements.push({
     id: `PURLINS`,
     type: "correas",
     qty: totalSegments,
-    length: (frames > 1 ? length / (frames - 1) : length), // tramo entre pórticos
-    weightKg: totalSegments * 6, // demo
+    length: stepZ,
+    weightKg: totalSegments * 6,
   });
 
   state.model = model;
 
-  const gs = qs("#geometry-status");
-  if (gs) gs.textContent = "Geometría calculada (modelo paramétrico).";
   const kv = qs("#kpi-version");
   if (kv) kv.textContent = String(state.version);
 
-  const ifcStatus = qs("#ifc-status");
-  if (ifcStatus) ifcStatus.textContent = "Modelo generado. Vista 3D actualizada.";
+  const gs = qs("#geometry-status");
+  if (gs) gs.textContent = "Geometría calculada (modelo paramétrico).";
+
+  const is = qs("#ifc-status");
+  if (is) is.textContent = "Modelo generado. Vista 3D actualizada.";
 }
 
 function computeTotals(model) {
@@ -497,7 +495,7 @@ function runRules() {
   results.push(rule("R2", "Cantidad de pórticos", b.frames >= 4 && b.frames <= 24, "Cantidad de pórticos fuera de rango."));
   results.push(rule("R3", "Relación esbeltez (demo)", b.height / b.span <= 1.0, "Altura muy grande respecto a la luz (revisar)."));
   results.push(rule("R4", "Elementos generados", (state.model.elements?.length || 0) > 0, "No se generaron elementos."));
-  results.push(rule("R5", "Separación correas (m)", b.purlinSpacing >= 0.9 && b.purlinSpacing <= 2.5, "Separación de correas fuera de rango (demo)."));
+  results.push(rule("R5", "Separación correas (demo)", b.purlinSpacing >= 0.9 && b.purlinSpacing <= 2.5, "Separación de correas fuera de rango (demo)."));
 
   const ok = results.filter((r) => r.ok).length;
   summary.textContent = `Validaciones: ${ok}/${results.length} OK`;
@@ -610,15 +608,10 @@ async function ensureThreeViewer() {
 }
 
 function resetViewer() {
-  const container = qs("#ifc-viewer");
-  if (!container) return;
-
-  // limpiar escena (si existe)
   if (state.scene && state.three) {
     const old = state.scene.getObjectByName("RMM_PREVIEW");
     if (old) state.scene.remove(old);
   }
-
   const vs = qs("#viewer-status");
   const is = qs("#ifc-status");
   if (vs) vs.textContent = "Preview 3D";
@@ -632,7 +625,6 @@ function clearPreviewGroup() {
   if (old) state.scene.remove(old);
 }
 
-// helper: viga/riostra como box orientado entre dos puntos
 function addOrientedBox(T, group, p0, p1, thickness, material) {
   const dir = new T.Vector3().subVectors(p1, p0);
   const len = dir.length();
@@ -644,7 +636,6 @@ function addOrientedBox(T, group, p0, p1, thickness, material) {
   const mid = new T.Vector3().addVectors(p0, p1).multiplyScalar(0.5);
   mesh.position.copy(mid);
 
-  // orientar: eje X del box apunta a dir
   const axisX = new T.Vector3(1, 0, 0);
   const q = new T.Quaternion().setFromUnitVectors(axisX, dir.clone().normalize());
   mesh.setRotationFromQuaternion(q);
@@ -684,41 +675,33 @@ async function renderParametricPreview() {
 
   const { span, length, height, frames, roof, purlinSpacing } = state.model.building;
 
-  // coords: X=ancho, Z=largo, Y=altura
   const halfSpan = span / 2;
   const stepZ = frames > 1 ? length / (frames - 1) : length;
 
-  // visual sizes
   const colSize = Math.max(0.14, span * 0.006);
   const beamSize = Math.max(0.12, span * 0.005);
 
   const matCol = new T.MeshStandardMaterial({ color: 0x3b82f6, metalness: 0.2, roughness: 0.6 });
   const matBeam = new T.MeshStandardMaterial({ color: 0xf9b64c, metalness: 0.2, roughness: 0.6 });
 
-  // columnas (verticales)
   const colGeo = new T.BoxGeometry(colSize, height, colSize);
 
-  // alturas de cubierta (visual)
-  const ridgeHeight = height + span * 0.25; // dos aguas
-  const topHeight = height + span * 0.2;    // una agua
+  const ridgeHeight = height + span * 0.25; // dos aguas (visual)
+  const topHeight = height + span * 0.2;    // una agua (visual)
 
   // ---- PÓRTICOS ----
   for (let i = 0; i < frames; i++) {
     const z = i * stepZ;
 
-    // col L
     const colL = new T.Mesh(colGeo, matCol);
     colL.position.set(-halfSpan, height / 2, z);
     group.add(colL);
 
-    // col R
     const colR = new T.Mesh(colGeo, matCol);
     colR.position.set(+halfSpan, height / 2, z);
     group.add(colR);
 
-    // techo / vigas según tipo
     if (roof === "dos_aguas") {
-      // 2 vigas inclinadas (rafters) hasta cumbrera
       const pL = new T.Vector3(-halfSpan, height, z);
       const pR = new T.Vector3(+halfSpan, height, z);
       const pC = new T.Vector3(0, ridgeHeight, z);
@@ -726,29 +709,23 @@ async function renderParametricPreview() {
       addOrientedBox(T, group, pL, pC, beamSize, matBeam);
       addOrientedBox(T, group, pC, pR, beamSize, matBeam);
 
-      // “nodo” cumbrera (solo visual)
       const node = new T.Mesh(new T.SphereGeometry(Math.max(0.12, beamSize * 0.55), 12, 12), matBeam);
       node.position.set(0, ridgeHeight, z);
       group.add(node);
 
     } else if (roof === "una_agua") {
-      // una sola viga inclinada
       const p0 = new T.Vector3(-halfSpan, height, z);
       const p1 = new T.Vector3(+halfSpan, topHeight, z);
       addOrientedBox(T, group, p0, p1, beamSize, matBeam);
 
     } else {
-      // plano: viga horizontal
       const p0 = new T.Vector3(-halfSpan, height, z);
       const p1 = new T.Vector3(+halfSpan, height, z);
       addOrientedBox(T, group, p0, p1, beamSize, matBeam);
     }
   }
 
-  // ===================
-  // CORREAS — SEGMENTADAS ENTRE PÓRTICOS + PENDIENTE + separación real (m)
-  // (criterio tipo CIRSOC: tramos simplemente apoyados entre pórticos)
-  // ===================
+  // ---- CORREAS segmentadas entre pórticos + siguiendo pendiente ----
   const matPurlin = new T.MeshStandardMaterial({ color: 0x8bc1ff, metalness: 0.2, roughness: 0.6 });
   const purlinSize = Math.max(0.06, span * 0.003);
   const segGeo = new T.BoxGeometry(purlinSize, purlinSize, stepZ);
@@ -765,22 +742,21 @@ async function renderParametricPreview() {
   }
 
   if (roof === "dos_aguas") {
-    const slopeLen = Math.sqrt(Math.pow(halfSpan, 2) + Math.pow(ridgeHeight - height, 2));
+    const slopeLen = Math.sqrt(halfSpan ** 2 + (ridgeHeight - height) ** 2);
     const count = Math.max(2, Math.ceil(slopeLen / spacing));
 
     for (let i = 0; i < frames - 1; i++) {
       const z0 = i * stepZ;
       const z1 = (i + 1) * stepZ;
 
-      // faldón izquierdo (-halfSpan -> 0)
+      // faldón izquierdo
       for (let k = 0; k < count; k++) {
         const t = k / (count - 1);
         const x = lerp(-halfSpan, 0, t);
         const y = lerp(height, ridgeHeight, t);
         addPurlinSegment(x, y, z0, z1);
       }
-
-      // faldón derecho (0 -> +halfSpan)
+      // faldón derecho
       for (let k = 0; k < count; k++) {
         const t = k / (count - 1);
         const x = lerp(0, halfSpan, t);
@@ -790,7 +766,7 @@ async function renderParametricPreview() {
     }
 
   } else if (roof === "una_agua") {
-    const slopeLen = Math.sqrt(Math.pow(span, 2) + Math.pow(topHeight - height, 2));
+    const slopeLen = Math.sqrt(span ** 2 + (topHeight - height) ** 2);
     const count = Math.max(2, Math.ceil(slopeLen / spacing));
 
     for (let i = 0; i < frames - 1; i++) {
@@ -806,7 +782,6 @@ async function renderParametricPreview() {
     }
 
   } else {
-    // techo plano
     const count = Math.max(2, Math.ceil(span / spacing));
 
     for (let i = 0; i < frames - 1; i++) {
@@ -822,16 +797,13 @@ async function renderParametricPreview() {
     }
   }
 
-  // agregar a escena
   scene.add(group);
 
-  // status
   const vs = qs("#viewer-status");
   const is = qs("#ifc-status");
   if (vs) vs.textContent = "Preview 3D";
-  if (is) is.textContent = `Preview 3D actualizado (${roof}). Correas: sep ${spacing} m, entre pórticos.`;
+  if (is) is.textContent = `Preview 3D actualizado (${roof}). Correas: sep ${spacing} m (tramo entre pórticos).`;
 
-  // encuadrar cámara
   fitCameraToObject(group);
 }
 
@@ -1020,7 +992,6 @@ async function init() {
   bindWizard();
   bindIndustrialControls();
 
-  // Inicializar visor 3D aunque no cargues IFC
   await ensureThreeViewer();
 
   renderPermissions(null);
@@ -1028,10 +999,6 @@ async function init() {
   refreshKPIs();
   runRules();
   renderLocalVersions();
-
-  // si ya hay valores, podés mostrar un preview inicial (opcional)
-  // generateModelFromIndustrial();
-  // await renderParametricPreview();
 }
 
 window.addEventListener("DOMContentLoaded", () => {
