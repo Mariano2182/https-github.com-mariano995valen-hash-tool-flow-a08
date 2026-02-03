@@ -6,13 +6,18 @@ const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
 const state = {
   session: null,
   role: null,
-  model: null, // nuestro modelo paramétrico (JSON)
+  model: null, // modelo paramétrico (JSON) = fuente de verdad
   version: 0,
+  wizardStep: 1,
+
+  // IFC (opcional)
   ifcViewer: null,
   ifcLoaded: false,
 };
 
-// -------------------- UTILIDADES --------------------
+// =====================================================
+// UTILIDADES
+// =====================================================
 function clamp(n, a, b) {
   return Math.max(a, Math.min(b, n));
 }
@@ -38,7 +43,9 @@ function nowISO() {
   return new Date().toISOString();
 }
 
-// -------------------- TOOLTIP ACCESSIBLE (extra) --------------------
+// =====================================================
+// TOOLTIP ACCESSIBLE (extra)
+// =====================================================
 // Ya los tooltips se muestran por CSS con data-tooltip.
 // Esto solo agrega aria-label si falta (mejora accesibilidad).
 function enhanceTooltips() {
@@ -49,7 +56,9 @@ function enhanceTooltips() {
   });
 }
 
-// -------------------- MODAL --------------------
+// =====================================================
+// MODAL
+// =====================================================
 function openModal(id) {
   const modal = qs(`#${id}`);
   if (!modal) return;
@@ -69,12 +78,8 @@ function bindModals() {
     if (!btn) return;
 
     const action = btn.getAttribute("data-action");
-    if (action === "open-demo") {
-      openModal("demo-modal");
-    }
-    if (action === "close-modal" && btn.closest(".modal")) {
-      closeModal(btn.closest(".modal"));
-    }
+    if (action === "open-demo") openModal("demo-modal");
+    if (action === "close-modal" && btn.closest(".modal")) closeModal(btn.closest(".modal"));
   });
 
   // close buttons
@@ -102,7 +107,9 @@ function bindModals() {
   });
 }
 
-// -------------------- NAV SCROLL --------------------
+// =====================================================
+// NAV SCROLL
+// =====================================================
 function bindScrollButtons() {
   document.addEventListener("click", (e) => {
     const btn = e.target.closest('[data-action="scroll"]');
@@ -114,7 +121,9 @@ function bindScrollButtons() {
   });
 }
 
-// -------------------- AUTH (DEMO) --------------------
+// =====================================================
+// AUTH (DEMO)
+// =====================================================
 function rolePermissions(role) {
   const base = ["Ver proyecto", "Descargar BOM", "Ver validaciones"];
   if (role === "Cliente") return base;
@@ -126,6 +135,7 @@ function rolePermissions(role) {
 
 function renderPermissions(role) {
   const ul = qs("#auth-permissions");
+  if (!ul) return;
   ul.innerHTML = "";
   rolePermissions(role).forEach((p) => {
     const li = document.createElement("li");
@@ -183,7 +193,176 @@ function bindAuth() {
   });
 }
 
-// -------------------- WIZARD --------------------
+// =====================================================
+// THREE.JS VIEWER (PREVIEW PARAMÉTRICO) - GRATIS / ESTABLE
+// =====================================================
+let three = null;
+
+async function ensureThreeViewer() {
+  if (three) return three;
+
+  // Import UMD desde unpkg (funciona bien en GitHub Pages)
+  // Nota: OrbitControls.js define THREE.OrbitControls globalmente.
+  try {
+    await import("https://unpkg.com/three@0.158.0/build/three.min.js");
+    await import("https://unpkg.com/three@0.158.0/examples/js/controls/OrbitControls.js");
+  } catch (err) {
+    console.error("Error cargando Three.js:", err);
+    const container = qs("#ifc-viewer");
+    if (container) {
+      container.innerHTML = `
+        <div style="padding:16px;color:#e2e8f0;font-weight:700;">
+          No se pudo cargar Three.js desde CDN.<br/>
+          <span style="font-weight:400;color:#94a3b8;">
+            Motivo: ${String(err?.message || err)}
+          </span>
+        </div>
+      `;
+    }
+    return null;
+  }
+
+  const container = qs("#ifc-viewer");
+  if (!container) return null;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0b1220);
+
+  const camera = new THREE.PerspectiveCamera(
+    60,
+    container.clientWidth / container.clientHeight,
+    0.1,
+    2000
+  );
+  camera.position.set(30, 25, 30);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  container.innerHTML = "";
+  container.appendChild(renderer.domElement);
+
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+
+  // Luces
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+  dir.position.set(20, 40, 20);
+  scene.add(dir);
+
+  // Grilla + ejes
+  scene.add(new THREE.GridHelper(200, 200));
+  scene.add(new THREE.AxesHelper(5));
+
+  // Loop
+  function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  // Resize
+  window.addEventListener("resize", () => {
+    camera.aspect = container.clientWidth / container.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(container.clientWidth, container.clientHeight);
+  });
+
+  three = { scene, camera, renderer, controls };
+
+  const vs = qs("#viewer-status");
+  if (vs) vs.textContent = "Visor activo";
+
+  return three;
+}
+
+// Helper: fit a box (para encuadre)
+function fitToBox(controls, camera, box) {
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const fov = (camera.fov * Math.PI) / 180;
+  let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+  cameraZ *= 1.4;
+
+  camera.position.set(center.x + cameraZ, center.y + cameraZ * 0.65, center.z + cameraZ);
+  controls.target.set(center.x, center.y, center.z);
+  controls.update();
+}
+
+// Render del modelo paramétrico en Three.js
+async function renderParametricPreview() {
+  if (!state.model) return;
+
+  const v = await ensureThreeViewer();
+  if (!v) return;
+
+  const { scene, camera, controls } = v;
+
+  // limpiar preview anterior
+  const old = scene.getObjectByName("RMM_PREVIEW");
+  if (old) scene.remove(old);
+
+  const group = new THREE.Group();
+  group.name = "RMM_PREVIEW";
+
+  const { span, length, height, frames } = state.model.building;
+
+  const halfSpan = span / 2;
+  const step = frames > 1 ? length / (frames - 1) : length;
+
+  const matCol = new THREE.MeshStandardMaterial({
+    color: 0x3b82f6,
+    metalness: 0.25,
+    roughness: 0.6,
+  });
+
+  const matBeam = new THREE.MeshStandardMaterial({
+    color: 0xf9b64c,
+    metalness: 0.25,
+    roughness: 0.55,
+  });
+
+  const colSize = Math.max(0.18, span * 0.007);
+  const beamSize = Math.max(0.15, span * 0.006);
+
+  const colGeo = new THREE.BoxGeometry(colSize, height, colSize);
+  const beamGeo = new THREE.BoxGeometry(span, beamSize, beamSize);
+
+  for (let i = 0; i < frames; i++) {
+    const z = i * step;
+
+    const colL = new THREE.Mesh(colGeo, matCol);
+    colL.position.set(-halfSpan, height / 2, z);
+    group.add(colL);
+
+    const colR = new THREE.Mesh(colGeo, matCol);
+    colR.position.set(halfSpan, height / 2, z);
+    group.add(colR);
+
+    const beam = new THREE.Mesh(beamGeo, matBeam);
+    beam.position.set(0, height, z);
+    group.add(beam);
+  }
+
+  scene.add(group);
+
+  // encuadre
+  const box = new THREE.Box3().setFromObject(group);
+  fitToBox(controls, camera, box);
+
+  const s = qs("#ifc-status");
+  if (s) s.textContent = "Preview 3D generado (modelo paramétrico).";
+}
+
+// =====================================================
+// WIZARD
+// =====================================================
 function bindWizard() {
   const form = qs("#wizard-form");
   if (!form) return;
@@ -198,9 +377,7 @@ function bindWizard() {
     state.wizardStep = step;
   }
 
-  steps.forEach((b) => {
-    b.addEventListener("click", () => goStep(Number(b.dataset.step)));
-  });
+  steps.forEach((b) => b.addEventListener("click", () => goStep(Number(b.dataset.step))));
 
   document.addEventListener("click", (e) => {
     const next = e.target.closest('[data-action="next"]');
@@ -229,22 +406,24 @@ function bindWizard() {
     }
   });
 
-  form.addEventListener("submit", (e) => {
+  form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
     const data = Object.fromEntries(fd.entries());
 
-    // Actualizamos sliders de vista industrial con lo del wizard
+    // 1) llevar wizard -> industrial inputs
     setIndustrialInputsFromWizard(data);
 
-    // Generamos modelo base
+    // 2) generar modelo paramétrico
     generateModelFromIndustrial();
-  renderBOMFromModel();
-  refreshKPIs();
-  qs("#ifc-status").textContent = "Modelo generado. (Próximo: export IFC real con backend).";
 
-  // ✅ NUEVO: dibuja algo en el visor
-  renderParametricPreview();
+    // 3) ver resultados
+    renderBOMFromModel();
+    refreshKPIs();
+    runRules();
+
+    // 4) dibujar preview 3D
+    await renderParametricPreview();
 
     qs("#wizard-status").textContent = "Modelo generado. Revisá la vista industrial.";
     qs("#industrial")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -264,117 +443,19 @@ function setIndustrialInputsFromWizard(data) {
 
   updateIndustrialLabels();
 }
-async function renderParametricPreview() {
-  if (!state.model) return;
 
-  const viewer = await ensureIfcViewer();
-  if (!viewer) return;
-
-  const THREE = viewer?.context?.getScene?.().constructor
-    ? null
-    : viewer?.context?.scene
-    ? viewer.context.scene.constructor
-    : null;
-
-  // IFC.js expone THREE como viewer.THREE en algunas versiones
-  const T = viewer.THREE || window.THREE;
-  if (!T) {
-    qs("#ifc-status").textContent =
-      "No pude acceder a THREE desde el visor. (Después lo hacemos con Vite/NPM para 100% estable)";
-    return;
-  }
-
-  const scene = viewer.context.scene;
-
-  // borrar preview anterior
-  const old = scene.getObjectByName("RMM_PREVIEW");
-  if (old) scene.remove(old);
-
-  const group = new T.Group();
-  group.name = "RMM_PREVIEW";
-
-  const { span, length, height, frames } = state.model.building;
-
-  // Coordenadas:
-  // X = ancho (span), Z = largo (length), Y = altura
-  const halfSpan = span / 2;
-  const step = frames > 1 ? length / (frames - 1) : length;
-
-  // Material (simple)
-  const matCol = new T.MeshStandardMaterial({ color: 0x3b82f6, metalness: 0.2, roughness: 0.6 });
-  const matBeam = new T.MeshStandardMaterial({ color: 0xf9b64c, metalness: 0.2, roughness: 0.6 });
-
-  // luces básicas (si no existen)
-  if (!scene.getObjectByName("RMM_LIGHTS")) {
-    const lights = new T.Group();
-    lights.name = "RMM_LIGHTS";
-    const amb = new T.AmbientLight(0xffffff, 0.6);
-    const dir = new T.DirectionalLight(0xffffff, 0.9);
-    dir.position.set(10, 20, 10);
-    lights.add(amb, dir);
-    scene.add(lights);
-  }
-
-  // dimensiones de perfiles “dummy” (solo visual)
-  const colSize = Math.max(0.12, span * 0.006); // escala relativa
-  const beamSize = Math.max(0.10, span * 0.005);
-
-  // geometrías
-  const colGeo = new T.BoxGeometry(colSize, height, colSize);
-  const beamGeo = new T.BoxGeometry(span, beamSize, beamSize);
-
-  for (let i = 0; i < frames; i++) {
-    const z = i * step;
-
-    // columna izquierda
-    const colL = new T.Mesh(colGeo, matCol);
-    colL.position.set(-halfSpan, height / 2, z);
-    group.add(colL);
-
-    // columna derecha
-    const colR = new T.Mesh(colGeo, matCol);
-    colR.position.set(halfSpan, height / 2, z);
-    group.add(colR);
-
-    // viga
-    const beam = new T.Mesh(beamGeo, matBeam);
-    beam.position.set(0, height, z);
-    group.add(beam);
-  }
-
-  scene.add(group);
-
-  // encuadrar cámara
-  try {
-    const box = new T.Box3().setFromObject(group);
-    const size = box.getSize(new T.Vector3());
-    const center = box.getCenter(new T.Vector3());
-    viewer.context.getCameraControls().fitToBox(box, true);
-
-    // pequeño ajuste para que quede centrado
-    viewer.context.getCameraControls().setLookAt(
-      center.x + size.x * 0.6,
-      center.y + size.y * 0.6,
-      center.z + size.z * 0.6,
-      center.x,
-      center.y,
-      center.z,
-      true
-    );
-  } catch {
-    // si algo cambia en la API, al menos deja el modelo en escena
-  }
-
-  qs("#viewer-status").textContent = "Preview 3D";
-  qs("#ifc-status").textContent = "Preview 3D generado (columnas + vigas).";
-}
-
-// -------------------- INDUSTRIAL CONTROLS --------------------
+// =====================================================
+// INDUSTRIAL CONTROLS
+// =====================================================
 function updateIndustrialLabels() {
-  qs("#ind-span-value").textContent = qs("#ind-span").value;
-  qs("#ind-length-value").textContent = qs("#ind-length").value;
-  qs("#ind-height-value").textContent = qs("#ind-height").value;
-  qs("#ind-frames-value").textContent = qs("#ind-frames").value;
+  const a = qs("#ind-span-value");
+  const b = qs("#ind-length-value");
+  const c = qs("#ind-height-value");
+  const d = qs("#ind-frames-value");
+  if (a && qs("#ind-span")) a.textContent = qs("#ind-span").value;
+  if (b && qs("#ind-length")) b.textContent = qs("#ind-length").value;
+  if (c && qs("#ind-height")) c.textContent = qs("#ind-height").value;
+  if (d && qs("#ind-frames")) d.textContent = qs("#ind-frames").value;
 }
 
 function bindIndustrialControls() {
@@ -386,13 +467,17 @@ function bindIndustrialControls() {
 
   updateIndustrialLabels();
 
-  document.addEventListener("click", (e) => {
+  document.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-action]");
     if (!btn) return;
 
     const action = btn.dataset.action;
 
-    if (action === "generate-model") generateModelFromIndustrial();
+    if (action === "generate-model") {
+      generateModelFromIndustrial();
+      await renderParametricPreview();
+    }
+
     if (action === "export-bom") exportBOM();
     if (action === "export-json") exportJSON();
     if (action === "run-rules") runRules();
@@ -414,7 +499,9 @@ function bindIndustrialControls() {
   }
 }
 
-// -------------------- MODELO PARAMÉTRICO (JSON) --------------------
+// =====================================================
+// MODELO PARAMÉTRICO (JSON)
+// =====================================================
 function generateModelFromIndustrial() {
   const span = Number(qs("#ind-span")?.value || 24);
   const length = Number(qs("#ind-length")?.value || 60);
@@ -424,22 +511,17 @@ function generateModelFromIndustrial() {
 
   state.version += 1;
 
-  // Modelo simple (base) — esto luego lo convertimos a IFC con backend (etapa siguiente)
-  // Por ahora es “fuente de verdad” para BOM + reglas + versionado.
   const model = {
     meta: { createdAt: nowISO(), version: state.version, unit: "m", source: "RMM Industrial UI" },
     building: { type: "nave", roof, span, length, height, frames },
     elements: [],
   };
 
-  // Generación muy simple de elementos (para BOM y validaciones):
-  // - 2 columnas por pórtico
-  // - 1 viga por pórtico
-  // - correas estimadas
+  // Generación simple (BOM + reglas)
   for (let i = 0; i < frames; i++) {
-    model.elements.push({ id: `COL-L-${i+1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
-    model.elements.push({ id: `COL-R-${i+1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
-    model.elements.push({ id: `BEAM-${i+1}`, type: "viga", qty: 1, length: span, weightKg: span * 55 });
+    model.elements.push({ id: `COL-L-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
+    model.elements.push({ id: `COL-R-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
+    model.elements.push({ id: `BEAM-${i + 1}`, type: "viga", qty: 1, length: span, weightKg: span * 55 });
   }
 
   const purlins = Math.max(6, Math.round(length / 4));
@@ -447,12 +529,17 @@ function generateModelFromIndustrial() {
 
   state.model = model;
 
-  qs("#geometry-status").textContent = "Geometría calculada (modelo paramétrico).";
-  qs("#kpi-version").textContent = String(state.version);
+  const gs = qs("#geometry-status");
+  if (gs) gs.textContent = "Geometría calculada (modelo paramétrico).";
+
+  const kv = qs("#kpi-version");
+  if (kv) kv.textContent = String(state.version);
 
   renderBOMFromModel();
   refreshKPIs();
-  qs("#ifc-status").textContent = "Modelo generado. (Próximo: export IFC real con backend).";
+
+  const s = qs("#ifc-status");
+  if (s) s.textContent = "Modelo generado (preview). Próximo: IFC real con backend.";
 }
 
 function computeTotals(model) {
@@ -464,11 +551,15 @@ function computeTotals(model) {
 
 function refreshKPIs() {
   const { count, weight } = computeTotals(state.model);
-  qs("#kpi-elements").textContent = fmt(count);
-  qs("#kpi-weight").textContent = fmt(weight);
+  const a = qs("#kpi-elements");
+  const b = qs("#kpi-weight");
+  if (a) a.textContent = fmt(count);
+  if (b) b.textContent = fmt(weight);
 }
 
-// -------------------- BOM TABLE --------------------
+// =====================================================
+// BOM TABLE
+// =====================================================
 function renderBOMFromModel() {
   const tbody = qs("#materials-table");
   if (!tbody) return;
@@ -478,7 +569,6 @@ function renderBOMFromModel() {
     return;
   }
 
-  // Agrupar por type
   const map = new Map();
   for (const e of state.model.elements) {
     const k = e.type;
@@ -503,10 +593,13 @@ function renderBOMFromModel() {
     .join("");
 }
 
-// -------------------- EXPORTS --------------------
+// =====================================================
+// EXPORTS
+// =====================================================
 function exportJSON() {
   if (!state.model) {
-    qs("#ifc-status").textContent = "No hay modelo para exportar.";
+    const s = qs("#ifc-status");
+    if (s) s.textContent = "No hay modelo para exportar.";
     return;
   }
   downloadText(`rmm_model_v${state.version}.json`, JSON.stringify(state.model, null, 2), "application/json");
@@ -514,11 +607,11 @@ function exportJSON() {
 
 function exportBOM() {
   if (!state.model) {
-    qs("#ifc-status").textContent = "No hay modelo para exportar.";
+    const s = qs("#ifc-status");
+    if (s) s.textContent = "No hay modelo para exportar.";
     return;
   }
 
-  // BOM agrupado por tipo
   const map = new Map();
   for (const e of state.model.elements) {
     const k = e.type;
@@ -534,7 +627,9 @@ function exportBOM() {
   downloadText(`rmm_bom_v${state.version}.csv`, header + lines, "text/csv");
 }
 
-// -------------------- REGLAS (VALIDACIONES) --------------------
+// =====================================================
+// REGLAS (VALIDACIONES)
+// =====================================================
 function runRules() {
   const summary = qs("#rules-summary");
   const list = qs("#rules-list");
@@ -549,7 +644,6 @@ function runRules() {
   const b = state.model.building;
   const results = [];
 
-  // Reglas simples pero útiles (industrial base)
   results.push(rule("R1", "Dimensiones mínimas", b.span >= 10 && b.length >= 20 && b.height >= 4, "Ancho/Largo/Altura fuera de rango mínimo."));
   results.push(rule("R2", "Cantidad de pórticos", b.frames >= 4 && b.frames <= 24, "Cantidad de pórticos fuera de rango."));
   results.push(rule("R3", "Relación esbeltez (demo)", b.height / b.span <= 1.0, "Altura muy grande respecto a la luz (revisar)."));
@@ -575,9 +669,30 @@ function rule(id, name, ok, msg) {
   return { id, name, ok: Boolean(ok), msg: msg || "" };
 }
 
-// -------------------- IFC VIEWER (IFC.js) --------------------
-// Usamos import dinámico desde CDN. Si el CDN cambia, te muestra mensaje en pantalla.
-// Recomendación industrial: luego lo instalamos por npm (Vite) para robustez.
+// =====================================================
+// IFC VIEWER (IFC.js) - OPCIONAL (solo si cargas un IFC)
+// =====================================================
+
+// Loader con fallback de CDN + versión fija (GitHub Pages friendly)
+async function loadIfcViewerModule() {
+  const urls = [
+    "https://esm.sh/web-ifc-viewer@1.0.218",
+    "https://cdn.jsdelivr.net/npm/web-ifc-viewer@1.0.218/dist/ifc-viewer.es.js",
+    "https://unpkg.com/web-ifc-viewer@1.0.218/dist/ifc-viewer.es.js",
+  ];
+
+  let lastErr = null;
+  for (const url of urls) {
+    try {
+      return await import(url);
+    } catch (e) {
+      lastErr = e;
+      console.warn("[IFC] Falló CDN:", url, e);
+    }
+  }
+  throw lastErr || new Error("No se pudo cargar IFC Viewer");
+}
+
 async function ensureIfcViewer() {
   if (state.ifcViewer) return state.ifcViewer;
 
@@ -586,27 +701,25 @@ async function ensureIfcViewer() {
   if (!container) return null;
 
   try {
-    // web-ifc-viewer (IFC.js wrapper)
-    // Nota: si preferís “100% estable”, después lo pasamos a npm + Vite.
-    const mod = await import("https://unpkg.com/web-ifc-viewer@latest/dist/ifc-viewer.es.js");
+    const mod = await loadIfcViewerModule();
+    const IfcViewerAPI = mod?.IfcViewerAPI || mod?.default?.IfcViewerAPI;
+    if (!IfcViewerAPI) throw new Error("No se encontró IfcViewerAPI en el módulo.");
 
-    const IfcViewerAPI = mod?.IfcViewerAPI;
-    if (!IfcViewerAPI) throw new Error("No se pudo cargar IfcViewerAPI.");
+    // IMPORTANTE: IFC.js va a reutilizar el mismo contenedor
+    // y va a reemplazar el canvas actual.
+    container.innerHTML = "";
 
     const viewer = new IfcViewerAPI({
       container,
       backgroundColor: { r: 0.04, g: 0.07, b: 0.13, a: 1 },
     });
 
-    // Grilla + ejes
     viewer.grid.setGrid();
     viewer.axes.setAxes();
-
-    // Mejoras básicas
     viewer.context.renderer.postProduction.active = true;
 
     state.ifcViewer = viewer;
-    status.textContent = "Listo";
+    if (status) status.textContent = "IFC listo";
     return viewer;
   } catch (err) {
     container.innerHTML = `
@@ -618,7 +731,7 @@ async function ensureIfcViewer() {
         </span>
       </div>
     `;
-    status.textContent = "Error IFC";
+    if (status) status.textContent = "Error IFC";
     return null;
   }
 }
@@ -631,38 +744,39 @@ async function loadIFCFile(file) {
 
   try {
     const url = URL.createObjectURL(file);
-
-    // Cargar IFC
     await viewer.IFC.loadIfcUrl(url);
-
     URL.revokeObjectURL(url);
 
     state.ifcLoaded = true;
     qs("#viewer-status").textContent = "IFC cargado";
     qs("#ifc-status").textContent = `IFC cargado: ${file.name}`;
-
-    // KPI: como no leemos propiedades aún, set básico:
-    qs("#kpi-version").textContent = String(state.version || "-");
   } catch (err) {
     qs("#ifc-status").textContent = `Error cargando IFC: ${err?.message || err}`;
     qs("#viewer-status").textContent = "Error";
   }
 }
 
-function resetViewer() {
+async function resetViewer() {
   const container = qs("#ifc-viewer");
   if (!container) return;
 
-  // reset básico: limpiar container y reiniciar state
+  // reset: vuelve al visor paramétrico (Three.js)
   container.innerHTML = "";
   state.ifcViewer = null;
   state.ifcLoaded = false;
 
-  qs("#viewer-status").textContent = "Sin archivo";
-  qs("#ifc-status").textContent = "Visor reiniciado. Podés cargar un IFC.";
+  qs("#viewer-status").textContent = "Visor activo";
+  qs("#ifc-status").textContent = "Visor reiniciado (modo preview).";
+
+  // recrea el viewer three y vuelve a dibujar el modelo si existe
+  three = null;
+  await ensureThreeViewer();
+  if (state.model) await renderParametricPreview();
 }
 
-// -------------------- VERSIONADO LOCAL --------------------
+// =====================================================
+// VERSIONADO LOCAL
+// =====================================================
 function localKey() {
   const name = qs("#project-name")?.value?.trim() || "rmm_project";
   return `rmm_versions_${name}`;
@@ -704,6 +818,9 @@ function loadLocalVersion() {
   refreshKPIs();
   runRules();
   renderLocalVersions();
+
+  // redibuja preview
+  renderParametricPreview();
 }
 
 function renderLocalVersions() {
@@ -721,7 +838,7 @@ function renderLocalVersions() {
   box.innerHTML = current
     .slice(0, 8)
     .map(
-      (v, idx) => `
+      (v) => `
       <div class="rule-item">
         <strong>v${v.version} — ${new Date(v.savedAt).toLocaleString("es-AR")}</strong>
         <div class="button-row">
@@ -734,7 +851,9 @@ function renderLocalVersions() {
     .join("");
 }
 
-// -------------------- SUPABASE (opcional) --------------------
+// =====================================================
+// SUPABASE (opcional)
+// =====================================================
 let supa = null;
 
 function connectSupabase() {
@@ -768,7 +887,6 @@ async function saveRemoteVersion() {
     return;
   }
 
-  // Requiere login real con Supabase Auth (no demo).
   const { data: auth } = await supa.auth.getUser();
   const userId = auth?.user?.id;
   if (!userId) {
@@ -828,18 +946,23 @@ async function loadRemoteVersion() {
 
     const latest = data[0];
     state.model = latest.bim_json;
-    state.version = (state.model?.meta?.version) || state.version;
+    state.version = state.model?.meta?.version || state.version;
 
     status.textContent = "Versión cargada desde Supabase.";
     renderBOMFromModel();
     refreshKPIs();
     runRules();
+
+    // redibuja preview
+    await resetViewer();
   } catch (err) {
     status.textContent = `Error: ${err?.message || err}`;
   }
 }
 
-// -------------------- INIT --------------------
+// =====================================================
+// INIT
+// =====================================================
 async function init() {
   enhanceTooltips();
   bindModals();
@@ -848,15 +971,19 @@ async function init() {
   bindWizard();
   bindIndustrialControls();
 
-  // ✅ NUEVO: inicializa el visor (grilla + ejes) aunque no cargues IFC
-  await ensureIfcViewer();
+  // ✅ Inicializa el visor PREVIEW (Three.js) siempre (así no queda vacío)
+  await ensureThreeViewer();
 
   renderPermissions(null);
   renderBOMFromModel();
   refreshKPIs();
   runRules();
   renderLocalVersions();
+
+  // Si ya tenés modelo por alguna carga previa (raro), dibujalo
+  if (state.model) await renderParametricPreview();
 }
 
-window.addEventListener("DOMContentLoaded", () => { init(); });
-
+window.addEventListener("DOMContentLoaded", () => {
+  init();
+});
