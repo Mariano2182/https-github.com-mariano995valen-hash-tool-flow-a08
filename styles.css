@@ -88,34 +88,78 @@ input, select, textarea {
 }
 .ghost:hover { border-color: rgba(15, 23, 42, 0.35); }
 
-/* TOOLTIP SIMPLE (solo con data-tooltip) */
+/* ---------------------------------------------------
+   TOOLTIP (mejorado: no se corta en overflow + touch)
+--------------------------------------------------- */
 [data-tooltip] { position: relative; }
-[data-tooltip]:hover::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 10px);
-  transform: translateX(-50%);
-  background: rgba(15, 23, 42, 0.92);
-  color: #fff;
-  padding: 8px 10px;
-  border-radius: 10px;
-  font-size: 0.85rem;
-  line-height: 1.25;
-  white-space: nowrap;
-  z-index: 50;
-  pointer-events: none;
-  box-shadow: 0 12px 24px rgba(0,0,0,0.18);
+
+/* Desktop hover */
+@media (hover: hover) and (pointer: fine) {
+  [data-tooltip]:hover::after,
+  [data-tooltip]:focus-visible::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.92);
+    color: #fff;
+    padding: 8px 10px;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    line-height: 1.25;
+    white-space: nowrap;
+    z-index: 9999;
+    pointer-events: none;
+    box-shadow: 0 12px 24px rgba(0,0,0,0.18);
+  }
+
+  [data-tooltip]:hover::before,
+  [data-tooltip]:focus-visible::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 2px);
+    transform: translateX(-50%);
+    border: 8px solid transparent;
+    border-top-color: rgba(15, 23, 42, 0.92);
+    z-index: 9999;
+    pointer-events: none;
+  }
 }
-[data-tooltip]:hover::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 2px);
-  transform: translateX(-50%);
-  border: 8px solid transparent;
-  border-top-color: rgba(15, 23, 42, 0.92);
-  z-index: 50;
+
+/* Mobile/touch: mostrarlos SOLO con focus (tap) */
+@media (hover: none) and (pointer: coarse) {
+  [data-tooltip]:focus::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.92);
+    color: #fff;
+    padding: 8px 10px;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    line-height: 1.25;
+    width: min(260px, 78vw);
+    white-space: normal;
+    z-index: 9999;
+    pointer-events: none;
+    box-shadow: 0 12px 24px rgba(0,0,0,0.18);
+  }
+
+  [data-tooltip]:focus::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 2px);
+    transform: translateX(-50%);
+    border: 8px solid transparent;
+    border-top-color: rgba(15, 23, 42, 0.92);
+    z-index: 9999;
+    pointer-events: none;
+  }
 }
 
 /* HERO */
@@ -205,6 +249,19 @@ input, select, textarea {
   align-items: start;
 }
 
+/* ✅ opcional: estilo “software” (paneles algo sticky en desktop) */
+@media (min-width: 1101px) {
+  .industrial-panel {
+    position: sticky;
+    top: 18px;
+    align-self: start;
+  }
+  .industrial-panel.right {
+    position: sticky;
+    top: 18px;
+  }
+}
+
 .industrial-panel {
   background: var(--card);
   border-radius: 20px;
@@ -237,7 +294,8 @@ input, select, textarea {
   border-radius: 20px;
   box-shadow: var(--shadow);
   border: 1px solid rgba(15, 23, 42, 0.06);
-  overflow: hidden;
+  overflow: hidden; /* ok */
+  min-width: 0;     /* ✅ evita overflow horizontal por grid */
 }
 
 .viewer-topbar {
@@ -250,10 +308,20 @@ input, select, textarea {
 
 .viewer-title { font-weight: 900; }
 
+/* ✅ clave: evitar “visor en blanco” por canvas colapsado */
 .ifc-viewer {
   height: 520px;
   width: 100%;
   background: #0b1220;
+  display: block;
+  position: relative;
+}
+
+/* Si el script inserta canvas, aseguramos fill */
+.ifc-viewer canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
 }
 
 .viewer-footer {
@@ -351,9 +419,13 @@ input, select, textarea {
 /* RESPONSIVE */
 @media (max-width: 1100px) {
   .industrial-shell { grid-template-columns: 1fr; }
+  .industrial-panel,
+  .industrial-panel.right {
+    position: static; /* ✅ no sticky en mobile */
+  }
   .ifc-viewer { height: 460px; }
 }
+
 @media (max-width: 720px) {
   .nav-links { width: 100%; justify-content: flex-start; }
-  [data-tooltip]:hover::after { white-space: normal; width: min(260px, 75vw); }
 }
