@@ -1,8 +1,4 @@
-// script.js (ES Module)
-
-// ✅ Usa importmap del index.html
-import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+// script.js (ES Module) — GitHub Pages friendly (imports por URL completa)
 
 const qs = (sel, parent = document) => parent.querySelector(sel);
 const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
@@ -10,19 +6,20 @@ const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
 const state = {
   session: null,
   role: null,
-  model: null, // modelo paramétrico (JSON)
+  model: null,
   version: 0,
 
-  // visor Three.js
-  three: {
+  // Preview 3D (Three.js)
+  preview: {
     ready: false,
-    container: null,
+    THREE: null,
+    OrbitControls: null,
     renderer: null,
     scene: null,
     camera: null,
     controls: null,
     animId: null,
-    root: null, // Group con el modelo
+    groupName: "RMM_PREVIEW",
   },
 };
 
@@ -30,6 +27,7 @@ const state = {
 function clamp(n, a, b) {
   return Math.max(a, Math.min(b, n));
 }
+
 function fmt(n) {
   try {
     return Number(n).toLocaleString("es-AR");
@@ -37,9 +35,7 @@ function fmt(n) {
     return String(n);
   }
 }
-function nowISO() {
-  return new Date().toISOString();
-}
+
 function downloadText(filename, text, mime = "text/plain") {
   const blob = new Blob([text], { type: `${mime};charset=utf-8` });
   const a = document.createElement("a");
@@ -47,6 +43,10 @@ function downloadText(filename, text, mime = "text/plain") {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+function nowISO() {
+  return new Date().toISOString();
 }
 
 // -------------------- TOOLTIP ACCESSIBLE --------------------
@@ -65,10 +65,12 @@ function openModal(id) {
   modal.classList.add("active");
   modal.setAttribute("aria-hidden", "false");
 }
+
 function closeModal(modal) {
   modal.classList.remove("active");
   modal.setAttribute("aria-hidden", "true");
 }
+
 function bindModals() {
   document.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-action]");
@@ -122,8 +124,10 @@ function rolePermissions(role) {
   if (role === "Admin") return [...base, "Gestionar usuarios", "Gestionar catálogos", "Todo"];
   return base;
 }
+
 function renderPermissions(role) {
   const ul = qs("#auth-permissions");
+  if (!ul) return;
   ul.innerHTML = "";
   rolePermissions(role).forEach((p) => {
     const li = document.createElement("li");
@@ -131,6 +135,7 @@ function renderPermissions(role) {
     ul.appendChild(li);
   });
 }
+
 function bindAuth() {
   const form = qs("#auth-form");
   if (!form) return;
@@ -149,12 +154,14 @@ function bindAuth() {
   document.addEventListener("click", (e) => {
     const btn = e.target.closest('[data-action="logout"]');
     if (!btn) return;
+
     state.session = null;
     state.role = null;
     qs("#auth-status").textContent = "Sin sesión activa.";
     qs("#auth-permissions").innerHTML = "";
   });
 
+  // Magic link (opcional)
   document.addEventListener("click", async (e) => {
     const btn = e.target.closest('[data-action="magic-link"]');
     if (!btn) return;
@@ -193,15 +200,13 @@ function bindWizard() {
     state.wizardStep = step;
   }
 
-  steps.forEach((b) => {
-    b.addEventListener("click", () => goStep(Number(b.dataset.step)));
-  });
+  steps.forEach((b) => b.addEventListener("click", () => goStep(Number(b.dataset.step))));
 
   document.addEventListener("click", (e) => {
     const next = e.target.closest('[data-action="next"]');
     const prev = e.target.closest('[data-action="prev"]');
-    if (next) goStep((state.wizardStep || 1) + 1);
-    if (prev) goStep((state.wizardStep || 1) - 1);
+    if (next) goStep(state.wizardStep + 1);
+    if (prev) goStep(state.wizardStep - 1);
   });
 
   form.addEventListener("input", () => {
@@ -230,16 +235,12 @@ function bindWizard() {
     const data = Object.fromEntries(fd.entries());
 
     setIndustrialInputsFromWizard(data);
-
-    // Generar modelo + BOM + KPIs + Preview 3D
     generateModelFromIndustrial();
-    renderBOMFromModel();
-    refreshKPIs();
-    runRules();
-
     qs("#wizard-status").textContent = "Modelo generado. Revisá la vista industrial.";
     qs("#industrial")?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
+
+  goStep(1);
 }
 
 function setIndustrialInputsFromWizard(data) {
@@ -253,6 +254,7 @@ function setIndustrialInputsFromWizard(data) {
   if (height) height.value = clamp(Number(data.altura || 8), 4, 16);
   if (frames) frames.value = clamp(Number(data.porticos || 10), 4, 24);
 
+  // pendiente se mantiene como el usuario la dejó (industrial)
   updateIndustrialLabels();
 }
 
@@ -262,16 +264,17 @@ function updateIndustrialLabels() {
   qs("#ind-length-value").textContent = qs("#ind-length").value;
   qs("#ind-height-value").textContent = qs("#ind-height").value;
   qs("#ind-frames-value").textContent = qs("#ind-frames").value;
+
+  const slopeEl = qs("#ind-slope");
+  const slopeVal = qs("#ind-slope-value");
+  if (slopeEl && slopeVal) slopeVal.textContent = slopeEl.value;
 }
+
 function bindIndustrialControls() {
-  ["#ind-span", "#ind-length", "#ind-height", "#ind-frames", "#ind-roof"].forEach((id) => {
+  ["#ind-span", "#ind-length", "#ind-height", "#ind-frames", "#ind-slope"].forEach((id) => {
     const el = qs(id);
     if (!el) return;
-    el.addEventListener("input", () => {
-      updateIndustrialLabels();
-      // preview en vivo si ya hay modelo
-      if (state.model) renderParametricPreview();
-    });
+    el.addEventListener("input", updateIndustrialLabels);
   });
 
   updateIndustrialLabels();
@@ -282,18 +285,11 @@ function bindIndustrialControls() {
 
     const action = btn.dataset.action;
 
-    if (action === "generate-model") {
-      generateModelFromIndustrial();
-      renderBOMFromModel();
-      refreshKPIs();
-      runRules();
-    }
-
+    if (action === "generate-model") generateModelFromIndustrial();
     if (action === "export-bom") exportBOM();
     if (action === "export-json") exportJSON();
     if (action === "run-rules") runRules();
     if (action === "reset-viewer") resetViewer();
-
     if (action === "save-local") saveLocalVersion();
     if (action === "load-local") loadLocalVersion();
     if (action === "connect-supabase") connectSupabase();
@@ -301,13 +297,16 @@ function bindIndustrialControls() {
     if (action === "load-remote") loadRemoteVersion();
   });
 
+  // IFC input: (dejamos para futuro IFC.js). Por ahora solo avisamos.
   const ifcInput = qs("#ifc-file");
   if (ifcInput) {
     ifcInput.addEventListener("change", async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
-      // Por ahora dejamos mensaje (IFC real -> próxima etapa con bundler/ifc.js)
-      qs("#ifc-status").textContent = `IFC (${file.name}) todavía no se parsea en GitHub Pages sin empaquetado. Usá el preview 3D.`;
+      qs("#ifc-status").textContent =
+        "Carga IFC: pendiente de integrar IFC.js empaquetado. (Preview 3D funciona igual).";
+      qs("#viewer-status").textContent = "Preview activo";
+      e.target.value = "";
     });
   }
 }
@@ -320,49 +319,44 @@ function generateModelFromIndustrial() {
   const frames = Number(qs("#ind-frames")?.value || 10);
   const roof = qs("#ind-roof")?.value || "dos_aguas";
 
+  // pendiente % elegida por el usuario
+  const slopePct = Number(qs("#ind-slope")?.value || 10);
+  const slope = clamp(slopePct / 100, 0.02, 0.25);
+
   state.version += 1;
 
   const model = {
     meta: { createdAt: nowISO(), version: state.version, unit: "m", source: "RMM Industrial UI" },
-    building: { type: "nave", roof, span, length, height, frames },
+    building: { type: "nave", roof, span, length, height, frames, slope }, // <- slope guardada acá
     elements: [],
   };
 
-  // Elementos simplificados para BOM (no cálculo real)
+  // Elementos base BOM (simple demo)
   for (let i = 0; i < frames; i++) {
     model.elements.push({ id: `COL-L-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
     model.elements.push({ id: `COL-R-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
-
-    // vigas / cabios depende del tipo de cubierta (BOM demo)
-    if (roof === "plana") {
-      model.elements.push({ id: `BEAM-${i + 1}`, type: "viga", qty: 1, length: span, weightKg: span * 55 });
-    } else if (roof === "una_agua") {
-      model.elements.push({ id: `RAFTER-${i + 1}`, type: "cabio", qty: 1, length: span * 1.05, weightKg: span * 48 });
-    } else {
-      model.elements.push({ id: `RAFTER-L-${i + 1}`, type: "cabio", qty: 1, length: (span / 2) * 1.08, weightKg: span * 28 });
-      model.elements.push({ id: `RAFTER-R-${i + 1}`, type: "cabio", qty: 1, length: (span / 2) * 1.08, weightKg: span * 28 });
-      model.elements.push({ id: `RIDGE-${i + 1}`, type: "cumbrera", qty: 1, length: 0.2, weightKg: 8 });
-    }
+    model.elements.push({ id: `BEAM-${i + 1}`, type: "viga", qty: 1, length: span, weightKg: span * 55 });
   }
 
-  // Correas (cantidad aproximada, por pendiente)
-  const approxPurlinLines = Math.max(6, Math.round(span / 2.2));
-  model.elements.push({
-    id: `PURLINS`,
-    type: "correas",
-    qty: approxPurlinLines * Math.max(1, frames - 1), // por tramo entre pórticos
-    length: Math.max(1, length / Math.max(1, frames - 1)),
-    weightKg: approxPurlinLines * Math.max(1, frames - 1) * 12,
-  });
+  const purlins = Math.max(6, Math.round(length / 4));
+  model.elements.push({ id: `PURLINS`, type: "correas", qty: purlins, length: span, weightKg: purlins * span * 8 });
+
+  // girts (correas de columnas)
+  const girts = Math.max(6, Math.round(length / 5)) * 2;
+  model.elements.push({ id: `GIRTS`, type: "correas_columna", qty: girts, length: length, weightKg: girts * 6 });
 
   state.model = model;
 
   qs("#geometry-status").textContent = "Geometría calculada (modelo paramétrico).";
   qs("#kpi-version").textContent = String(state.version);
 
-  qs("#ifc-status").textContent = "Modelo generado. Preview 3D actualizado.";
-  qs("#viewer-status").textContent = "Preview activo";
+  renderBOMFromModel();
+  refreshKPIs();
+  runRules();
 
+  qs("#ifc-status").textContent = "Modelo generado. Preview 3D actualizado.";
+
+  // Dibuja preview
   renderParametricPreview();
 }
 
@@ -372,6 +366,7 @@ function computeTotals(model) {
   const weight = elements.reduce((acc, e) => acc + (Number(e.weightKg) || 0), 0);
   return { count, weight };
 }
+
 function refreshKPIs() {
   const { count, weight } = computeTotals(state.model);
   qs("#kpi-elements").textContent = fmt(count);
@@ -420,6 +415,7 @@ function exportJSON() {
   }
   downloadText(`rmm_model_v${state.version}.json`, JSON.stringify(state.model, null, 2), "application/json");
 }
+
 function exportBOM() {
   if (!state.model) {
     qs("#ifc-status").textContent = "No hay modelo para exportar.";
@@ -442,9 +438,6 @@ function exportBOM() {
 }
 
 // -------------------- REGLAS (VALIDACIONES) --------------------
-function rule(id, name, ok, msg) {
-  return { id, name, ok: Boolean(ok), msg: msg || "" };
-}
 function runRules() {
   const summary = qs("#rules-summary");
   const list = qs("#rules-list");
@@ -461,7 +454,7 @@ function runRules() {
 
   results.push(rule("R1", "Dimensiones mínimas", b.span >= 10 && b.length >= 20 && b.height >= 4, "Ancho/Largo/Altura fuera de rango mínimo."));
   results.push(rule("R2", "Cantidad de pórticos", b.frames >= 4 && b.frames <= 24, "Cantidad de pórticos fuera de rango."));
-  results.push(rule("R3", "Relación esbeltez (demo)", b.height / b.span <= 1.0, "Altura muy grande respecto a la luz (revisar)."));
+  results.push(rule("R3", "Pendiente razonable", b.slope >= 0.02 && b.slope <= 0.25, "Pendiente fuera de rango típico."));
   results.push(rule("R4", "Elementos generados", (state.model.elements?.length || 0) > 0, "No se generaron elementos."));
 
   const ok = results.filter((r) => r.ok).length;
@@ -480,266 +473,342 @@ function runRules() {
     .join("");
 }
 
-// -------------------- THREE VIEWER --------------------
-function ensureThreeViewer() {
-  if (state.three.ready) return;
+function rule(id, name, ok, msg) {
+  return { id, name, ok: Boolean(ok), msg: msg || "" };
+}
+
+// -------------------- PREVIEW 3D (Three.js) --------------------
+async function ensurePreview3D() {
+  if (state.preview.ready) return true;
 
   const container = qs("#ifc-viewer");
-  if (!container) return;
+  if (!container) return false;
 
-  state.three.container = container;
+  try {
+    // Import Three + OrbitControls por URL absoluta (GitHub Pages OK)
+    const THREE = await import("https://unpkg.com/three@0.158.0/build/three.module.js");
+    const oc = await import("https://unpkg.com/three@0.158.0/examples/jsm/controls/OrbitControls.js");
 
-  // limpiar por si hay texto previo
-  container.innerHTML = "";
-  container.style.position = "relative";
+    state.preview.THREE = THREE;
+    state.preview.OrbitControls = oc.OrbitControls;
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-  renderer.setSize(container.clientWidth, container.clientHeight);
-  container.appendChild(renderer.domElement);
+    const { WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, AxesHelper, GridHelper, AmbientLight, DirectionalLight } = THREE;
 
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0b1220);
+    // Limpia contenido previo
+    container.innerHTML = "";
 
-  const camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 2000);
-  camera.position.set(30, 22, 50);
+    const renderer = new WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    container.appendChild(renderer.domElement);
 
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.08;
-  controls.target.set(0, 6, 20);
+    const scene = new Scene();
+    scene.background = new Color(0x071226);
+    scene.fog = new Fog(0x071226, 80, 500);
 
-  // grid + axes
-  const grid = new THREE.GridHelper(300, 60, 0x334155, 0x1f2937);
-  grid.position.y = 0;
-  scene.add(grid);
+    const camera = new PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 2000);
+    camera.position.set(35, 18, 60);
 
-  const axes = new THREE.AxesHelper(6);
-  axes.position.set(0, 0.01, 0);
-  scene.add(axes);
+    const controls = new state.preview.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.target.set(0, 6, 20);
 
-  // lights
-  const amb = new THREE.AmbientLight(0xffffff, 0.65);
-  scene.add(amb);
+    // grid + axes
+    const grid = new GridHelper(300, 120);
+    grid.position.y = 0;
+    scene.add(grid);
 
-  const dir = new THREE.DirectionalLight(0xffffff, 0.95);
-  dir.position.set(80, 120, 40);
-  scene.add(dir);
+    const axes = new AxesHelper(8);
+    scene.add(axes);
 
-  state.three.renderer = renderer;
-  state.three.scene = scene;
-  state.three.camera = camera;
-  state.three.controls = controls;
+    // lights
+    const amb = new AmbientLight(0xffffff, 0.55);
+    scene.add(amb);
 
-  // root group
-  state.three.root = new THREE.Group();
-  state.three.root.name = "RMM_ROOT";
-  scene.add(state.three.root);
+    const dir = new DirectionalLight(0xffffff, 0.9);
+    dir.position.set(40, 60, 20);
+    scene.add(dir);
 
-  const onResize = () => {
-    if (!state.three.container) return;
-    const w = state.three.container.clientWidth;
-    const h = state.three.container.clientHeight;
-    renderer.setSize(w, h);
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
-  };
+    state.preview.renderer = renderer;
+    state.preview.scene = scene;
+    state.preview.camera = camera;
+    state.preview.controls = controls;
 
-  window.addEventListener("resize", onResize);
+    // resize
+    const ro = new ResizeObserver(() => {
+      if (!state.preview.renderer) return;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      state.preview.renderer.setSize(w, h);
+      state.preview.camera.aspect = w / h;
+      state.preview.camera.updateProjectionMatrix();
+    });
+    ro.observe(container);
 
-  const animate = () => {
-    state.three.animId = requestAnimationFrame(animate);
-    controls.update();
-    renderer.render(scene, camera);
-  };
-  animate();
+    // animation loop
+    const tick = () => {
+      state.preview.animId = requestAnimationFrame(tick);
+      controls.update();
+      renderer.render(scene, camera);
+    };
+    tick();
 
-  state.three.ready = true;
+    state.preview.ready = true;
+    qs("#viewer-status").textContent = "Preview activo";
+    qs("#ifc-status").textContent = "Preview 3D listo (sin IFC).";
+
+    return true;
+  } catch (err) {
+    const containerEl = qs("#ifc-viewer");
+    if (containerEl) {
+      containerEl.innerHTML = `
+        <div style="padding:16px;color:#e2e8f0;font-weight:700;">
+          No se pudo cargar Three.js desde CDN.<br/>
+          <span style="font-weight:400;color:#94a3b8;">
+            Motivo: ${String(err?.message || err)}
+          </span>
+        </div>
+      `;
+    }
+    qs("#viewer-status").textContent = "Error 3D";
+    return false;
+  }
 }
 
 function resetViewer() {
-  // limpia solo el modelo (mantiene visor)
-  ensureThreeViewer();
-  if (!state.three.root) return;
+  const container = qs("#ifc-viewer");
+  if (!container) return;
 
-  // borrar hijos
-  while (state.three.root.children.length) state.three.root.remove(state.three.root.children[0]);
+  // stop anim
+  if (state.preview.animId) cancelAnimationFrame(state.preview.animId);
 
-  qs("#viewer-status").textContent = "Listo";
-  qs("#ifc-status").textContent = "Visor reiniciado. Generá un modelo para ver el 3D.";
+  state.preview.ready = false;
+  state.preview.THREE = null;
+  state.preview.OrbitControls = null;
+  state.preview.renderer = null;
+  state.preview.scene = null;
+  state.preview.camera = null;
+  state.preview.controls = null;
+  state.preview.animId = null;
+
+  container.innerHTML = "";
+  qs("#viewer-status").textContent = "Sin archivo";
+  qs("#ifc-status").textContent = "Visor reiniciado. Preview se reinicia al generar modelo.";
 }
 
-// -------------------- GEOMETRÍA: MIEMBROS + CORREAS --------------------
-function addMember(group, start, end, size, material) {
-  const dir = new THREE.Vector3().subVectors(end, start);
+function addMember(THREE, parent, a, b, thickness, material) {
+  // Crea un “tubo rectangular” (box) orientado entre dos puntos (a->b)
+  const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length();
-  if (len < 1e-6) return;
+  if (len <= 0.0001) return;
 
-  const geo = new THREE.BoxGeometry(size, size, len);
-  const mesh = new THREE.Mesh(geo, material);
+  const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
 
-  // orientar: Box está “en Z”, entonces rotamos para apuntar a dir
-  const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+  const geom = new THREE.BoxGeometry(thickness, thickness, len);
+  const mesh = new THREE.Mesh(geom, material);
+
+  // orient: por defecto box apunta en Z, rotamos hacia dir
   mesh.position.copy(mid);
-
   const zAxis = new THREE.Vector3(0, 0, 1);
-  const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.clone().normalize());
-  mesh.setRotationFromQuaternion(q);
+  const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.normalize());
+  mesh.quaternion.copy(q);
 
-  group.add(mesh);
+  parent.add(mesh);
 }
 
-function renderParametricPreview() {
-  if (!state.model) return;
-
-  ensureThreeViewer();
-  const root = state.three.root;
-  if (!root) return;
-
-  // limpiar anterior
-  while (root.children.length) root.remove(root.children[0]);
-
-  const b = state.model.building;
-  const { span, length, height, frames, roof } = b;
-
-  // materiales
-  const matCol = new THREE.MeshStandardMaterial({ color: 0x3b82f6, metalness: 0.2, roughness: 0.6 });
-  const matRafter = new THREE.MeshStandardMaterial({ color: 0xf9b64c, metalness: 0.2, roughness: 0.55 });
-  const matPurlin = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.1, roughness: 0.75 });
-
-  const group = new THREE.Group();
-  group.name = "RMM_PREVIEW";
-  root.add(group);
-
-  const halfSpan = span / 2;
-  const stepZ = frames > 1 ? length / (frames - 1) : length;
-
-  // tamaños visuales (no perfiles reales)
-  const colSize = Math.max(0.12, span * 0.006);
-  const rafterSize = Math.max(0.10, span * 0.005);
-  const purlinSize = Math.max(0.07, span * 0.0038);
-
-  // pendiente: tomamos una pendiente “típica” visual (10% a 20%)
-  // (la normativa la define por clima/uso, esto es para preview)
-  const slope = 0.15; // rise/run
-  const riseAtHalf = halfSpan * slope; // para dos aguas
-  const riseAtFull = span * slope; // para una agua
-
-  // helper: altura del techo en una posición X
-  function roofY(x) {
-    if (roof === "plana") return height;
-    if (roof === "una_agua") {
-      // sube desde -halfSpan (bajo) a +halfSpan (alto)
-      const t = (x + halfSpan) / span; // 0..1
-      return height + t * riseAtFull;
-    }
-    // dos aguas: sube hasta cumbrera en x=0
-    const ax = Math.abs(x);
-    const t = 1 - ax / halfSpan; // 0 en alero, 1 en cumbrera
-    return height + t * riseAtHalf;
-  }
-
-  // 1) PORTICOS
-  for (let i = 0; i < frames; i++) {
-    const z = i * stepZ;
-
-    const baseL = new THREE.Vector3(-halfSpan, 0, z);
-    const topL = new THREE.Vector3(-halfSpan, height, z);
-
-    const baseR = new THREE.Vector3(halfSpan, 0, z);
-    const topR = new THREE.Vector3(halfSpan, height, z);
-
-    // columnas
-    addMember(group, baseL, topL, colSize, matCol);
-    addMember(group, baseR, topR, colSize, matCol);
-
-    // cubierta por tipo
-    if (roof === "plana") {
-      const beamL = new THREE.Vector3(-halfSpan, height, z);
-      const beamR = new THREE.Vector3(halfSpan, height, z);
-      addMember(group, beamL, beamR, rafterSize, matRafter);
-    } else if (roof === "una_agua") {
-      const yL = roofY(-halfSpan);
-      const yR = roofY(halfSpan);
-      const eaveL = new THREE.Vector3(-halfSpan, yL, z);
-      const eaveR = new THREE.Vector3(halfSpan, yR, z);
-      addMember(group, eaveL, eaveR, rafterSize, matRafter);
-    } else {
-      // dos aguas: dos cabios hasta cumbrera
-      const ridge = new THREE.Vector3(0, roofY(0), z);
-      const eaveL = new THREE.Vector3(-halfSpan, roofY(-halfSpan), z);
-      const eaveR = new THREE.Vector3(halfSpan, roofY(halfSpan), z);
-      addMember(group, eaveL, ridge, rafterSize, matRafter);
-      addMember(group, ridge, eaveR, rafterSize, matRafter);
-    }
-  }
-
-  // 2) CORREAS: POR TRAMO ENTRE PORTICOS (no continuas)
-  // criterio: varias “líneas” de correa a lo largo de la pendiente, y cada una se dibuja entre z_i y z_{i+1}
-  const maxLinesPerSlope = Math.max(5, Math.round(span / 3.0));
-  const lines = clamp(maxLinesPerSlope, 5, 16);
-
-  // posiciones X donde van las líneas de correas
-  let xLines = [];
-  if (roof === "plana") {
-    // correas distribuidas sobre todo el ancho
-    for (let k = 0; k <= lines; k++) {
-      const t = k / lines; // 0..1
-      xLines.push(-halfSpan + t * span);
-    }
-  } else if (roof === "una_agua") {
-    for (let k = 0; k <= lines; k++) {
-      const t = k / lines;
-      xLines.push(-halfSpan + t * span);
-    }
-  } else {
-    // dos aguas: correas por cada faldón (sin duplicar cerca de cumbrera)
-    const perSide = Math.max(3, Math.floor(lines / 2));
-    for (let k = 0; k <= perSide; k++) {
-      const t = k / perSide; // 0..1 desde alero a cumbrera
-      const x = -halfSpan + t * (halfSpan);
-      xLines.push(x);
-    }
-    for (let k = 0; k <= perSide; k++) {
-      const t = k / perSide;
-      const x = halfSpan - t * (halfSpan);
-      xLines.push(x);
-    }
-    // opcional: línea exacta en cumbrera
-    xLines.push(0);
-    // limpiar duplicados casi iguales
-    xLines = [...new Set(xLines.map((v) => v.toFixed(4)))].map(Number).sort((a, b) => a - b);
-  }
-
-  // dibujar correas por tramo entre pórticos
-  for (let i = 0; i < frames - 1; i++) {
-    const z0 = i * stepZ;
-    const z1 = (i + 1) * stepZ;
-
-    for (const x of xLines) {
-      const y = roofY(x);
-
-      const p0 = new THREE.Vector3(x, y, z0);
-      const p1 = new THREE.Vector3(x, y, z1);
-
-      addMember(group, p0, p1, purlinSize, matPurlin);
-    }
-  }
-
-  // encuadre cámara
+function fitToGroup(THREE, camera, controls, group) {
   const box = new THREE.Box3().setFromObject(group);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
 
   const maxDim = Math.max(size.x, size.y, size.z);
-  const dist = maxDim * 1.2;
+  const dist = maxDim * 1.6;
 
-  state.three.controls.target.copy(center);
-  state.three.camera.position.set(center.x + dist, center.y + dist * 0.6, center.z + dist);
-  state.three.camera.lookAt(center);
+  camera.position.set(center.x + dist, center.y + dist * 0.55, center.z + dist);
+  controls.target.copy(center);
+  controls.update();
+}
+
+// ✅ Preview paramétrico: pórticos + correas techo (por vano) + correas columnas (por vano)
+async function renderParametricPreview() {
+  if (!state.model) return;
+
+  const ok = await ensurePreview3D();
+  if (!ok) return;
+
+  const THREE = state.preview.THREE;
+  const scene = state.preview.scene;
+
+  // borrar preview anterior
+  const old = scene.getObjectByName(state.preview.groupName);
+  if (old) scene.remove(old);
+
+  const group = new THREE.Group();
+  group.name = state.preview.groupName;
+
+  const { span, length, height, frames, roof, slope } = state.model.building;
+
+  // ejes: X (ancho), Y (altura), Z (largo)
+  const halfSpan = span / 2;
+  const step = frames > 1 ? length / (frames - 1) : length;
+
+  // materiales
+  const matCol = new THREE.MeshStandardMaterial({ color: 0x2563eb, metalness: 0.2, roughness: 0.6 });
+  const matRafter = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.2, roughness: 0.55 });
+  const matPurlin = new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.1, roughness: 0.7 });
+  const matGirt = new THREE.MeshStandardMaterial({ color: 0x93c5fd, metalness: 0.1, roughness: 0.75 });
+
+  // espesores visuales (no estructurales)
+  const colSize = Math.max(0.12, span * 0.006);
+  const rafterSize = Math.max(0.10, span * 0.005);
+  const purlinSize = Math.max(0.06, span * 0.0035);
+  const girtSize = Math.max(0.05, span * 0.003);
+
+  // Función de altura de techo para un punto X (en un mismo pórtico)
+  function roofY(x) {
+    if (roof === "plana") {
+      return height; // plana sin pendiente (si querés 2%: height + (x+halfSpan)*slope)
+    }
+    if (roof === "una_agua") {
+      // altura libre = alero bajo (izq). sube hacia der.
+      const t = (x + halfSpan) / span; // 0..1
+      return height + t * (span * slope);
+    }
+    // dos aguas: alero = height, cumbrera sube en el centro
+    const t = Math.abs(x) / halfSpan; // 0 en centro, 1 en alero
+    return height + (1 - t) * (halfSpan * slope);
+  }
+
+  // -------------------- PÓRTICOS --------------------
+  for (let i = 0; i < frames; i++) {
+    const z = i * step;
+
+    // alturas de columnas según cubierta
+    let topL = new THREE.Vector3(-halfSpan, height, z);
+    let topR = new THREE.Vector3(halfSpan, height, z);
+
+    if (roof === "una_agua") {
+      const lowEaveY = height;
+      const highEaveY = height + span * slope;
+      topL = new THREE.Vector3(-halfSpan, lowEaveY, z);
+      topR = new THREE.Vector3(halfSpan, highEaveY, z);
+    }
+
+    // columnas
+    const baseL = new THREE.Vector3(-halfSpan, 0, z);
+    const baseR = new THREE.Vector3(halfSpan, 0, z);
+    addMember(THREE, group, baseL, topL, colSize, matCol);
+    addMember(THREE, group, baseR, topR, colSize, matCol);
+
+    // vigas/cabios
+    if (roof === "plana") {
+      // viga superior plana
+      const a = new THREE.Vector3(-halfSpan, roofY(-halfSpan), z);
+      const b = new THREE.Vector3(halfSpan, roofY(halfSpan), z);
+      addMember(THREE, group, a, b, rafterSize, matRafter);
+
+    } else if (roof === "una_agua") {
+      // cabio entre aleros (topL y topR, ya coinciden)
+      addMember(THREE, group, topL, topR, rafterSize, matRafter);
+
+    } else {
+      // dos aguas: dos cabios a cumbrera
+      const eaveL = new THREE.Vector3(-halfSpan, height, z);
+      const eaveR = new THREE.Vector3(halfSpan, height, z);
+      const ridge = new THREE.Vector3(0, height + halfSpan * slope, z);
+
+      addMember(THREE, group, eaveL, ridge, rafterSize, matRafter);
+      addMember(THREE, group, ridge, eaveR, rafterSize, matRafter);
+    }
+  }
+
+  // -------------------- CORREAS DE TECHO (segmentadas POR VANO) --------------------
+  // Espaciamiento típico visual. (No es cálculo estructural, solo layout)
+  const purlinSpacing = 1.5; // m (podés ajustar)
+  const purlinCount = Math.max(2, Math.floor(span / purlinSpacing));
+
+  // Generamos líneas en X, y las segmentamos entre pórticos (z_i -> z_{i+1})
+  for (let bay = 0; bay < frames - 1; bay++) {
+    const z0 = bay * step;
+    const z1 = (bay + 1) * step;
+
+    if (roof === "dos_aguas") {
+      // lado izquierdo (x: -halfSpan..0) y derecho (0..halfSpan)
+      for (let k = 0; k <= Math.floor(purlinCount / 2); k++) {
+        const xL = -halfSpan + (k / Math.floor(purlinCount / 2 || 1)) * halfSpan; // -halfSpan..0
+        const xR = (k / Math.floor(purlinCount / 2 || 1)) * halfSpan;             // 0..halfSpan
+
+        // correas lado izq
+        const aL = new THREE.Vector3(xL, roofY(xL), z0);
+        const bL = new THREE.Vector3(xL, roofY(xL), z1);
+        addMember(THREE, group, aL, bL, purlinSize, matPurlin);
+
+        // correas lado der (salteo x=0 duplicado)
+        if (k > 0) {
+          const aR = new THREE.Vector3(xR, roofY(xR), z0);
+          const bR = new THREE.Vector3(xR, roofY(xR), z1);
+          addMember(THREE, group, aR, bR, purlinSize, matPurlin);
+        }
+      }
+
+      // correa en cumbrera (x=0)
+      const ridgeA = new THREE.Vector3(0, roofY(0), z0);
+      const ridgeB = new THREE.Vector3(0, roofY(0), z1);
+      addMember(THREE, group, ridgeA, ridgeB, purlinSize, matPurlin);
+
+    } else {
+      // plana o una_agua: correas en todo el ancho
+      for (let k = 0; k <= purlinCount; k++) {
+        const x = -halfSpan + (k / purlinCount) * span;
+        const a = new THREE.Vector3(x, roofY(x), z0);
+        const b = new THREE.Vector3(x, roofY(x), z1);
+        addMember(THREE, group, a, b, purlinSize, matPurlin);
+      }
+    }
+  }
+
+  // -------------------- CORREAS / LARGUEROS EN COLUMNAS (segmentadas POR VANO) --------------------
+  // Colocamos 3 alturas típicas relativas (40%, 60%, 80%)
+  const levels = [0.4, 0.6, 0.8];
+
+  function colHeightLeft() {
+    return height; // en una_agua, izq es alero bajo
+  }
+  function colHeightRight() {
+    return roof === "una_agua" ? height + span * slope : height;
+  }
+
+  for (let bay = 0; bay < frames - 1; bay++) {
+    const z0 = bay * step;
+    const z1 = (bay + 1) * step;
+
+    const hL = colHeightLeft();
+    const hR = colHeightRight();
+
+    for (const r of levels) {
+      const yL = Math.min(hL - 0.25, hL * r);
+      const yR = Math.min(hR - 0.25, hR * r);
+
+      // izquierda
+      const aL = new THREE.Vector3(-halfSpan, yL, z0);
+      const bL = new THREE.Vector3(-halfSpan, yL, z1);
+      addMember(THREE, group, aL, bL, girtSize, matGirt);
+
+      // derecha
+      const aR = new THREE.Vector3(halfSpan, yR, z0);
+      const bR = new THREE.Vector3(halfSpan, yR, z1);
+      addMember(THREE, group, aR, bR, girtSize, matGirt);
+    }
+  }
+
+  scene.add(group);
+
+  // encuadrar cámara
+  fitToGroup(THREE, state.preview.camera, state.preview.controls, group);
 
   qs("#viewer-status").textContent = "Preview activo";
-  qs("#ifc-status").textContent = `Preview 3D: ${roof.replace("_", " ")} | pórticos: ${frames} | correas por tramo.`;
+  qs("#ifc-status").textContent = `Preview 3D: ${roof} — pendiente ${(slope * 100).toFixed(1)}%`;
 }
 
 // -------------------- VERSIONADO LOCAL --------------------
@@ -774,6 +843,11 @@ function loadLocalVersion() {
   const latest = current[0];
   state.model = latest.model;
   state.version = latest.version || state.version;
+
+  // volcar pendiente al UI si existe
+  if (state.model?.building?.slope != null && qs("#ind-slope")) {
+    qs("#ind-slope").value = String(Math.round(state.model.building.slope * 100));
+  }
 
   qs("#persistence-status").textContent = `Versión cargada (v${state.version}).`;
   renderBOMFromModel();
@@ -856,14 +930,9 @@ async function saveRemoteVersion() {
     const projectName = qs("#project-name")?.value?.trim() || "Proyecto";
     const clientName = qs("#project-client")?.value?.trim() || null;
 
-    const payload = {
-      owner_id: userId,
-      project_name: projectName,
-      client_name: clientName,
-      bim_json: state.model,
-    };
-
+    const payload = { owner_id: userId, project_name: projectName, client_name: clientName, bim_json: state.model };
     const { error } = await supa.from("project_versions").insert(payload);
+
     status.textContent = error ? `Error: ${error.message}` : "Versión guardada en Supabase.";
   } catch (err) {
     status.textContent = `Error: ${err?.message || err}`;
@@ -886,7 +955,11 @@ async function loadRemoteVersion() {
   }
 
   try {
-    const { data, error } = await supa.from("project_versions").select("*").order("created_at", { ascending: false }).limit(1);
+    const { data, error } = await supa
+      .from("project_versions")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(1);
 
     if (error) {
       status.textContent = `Error: ${error.message}`;
@@ -902,6 +975,12 @@ async function loadRemoteVersion() {
     state.model = latest.bim_json;
     state.version = state.model?.meta?.version || state.version;
 
+    // volcar pendiente al UI
+    if (state.model?.building?.slope != null && qs("#ind-slope")) {
+      qs("#ind-slope").value = String(Math.round(state.model.building.slope * 100));
+      updateIndustrialLabels();
+    }
+
     status.textContent = "Versión cargada desde Supabase.";
     renderBOMFromModel();
     refreshKPIs();
@@ -913,7 +992,7 @@ async function loadRemoteVersion() {
 }
 
 // -------------------- INIT --------------------
-function init() {
+async function init() {
   enhanceTooltips();
   bindModals();
   bindScrollButtons();
@@ -921,12 +1000,18 @@ function init() {
   bindWizard();
   bindIndustrialControls();
 
-  ensureThreeViewer(); // deja el visor listo
   renderPermissions(null);
   renderBOMFromModel();
   refreshKPIs();
   runRules();
   renderLocalVersions();
+
+  // Inicializa preview para que no esté “vacío”
+  await ensurePreview3D();
+  qs("#viewer-status").textContent = "Preview activo";
+  qs("#ifc-status").textContent = "Preview 3D listo. Generá un modelo para ver estructura.";
 }
 
-window.addEventListener("DOMContentLoaded", init);
+window.addEventListener("DOMContentLoaded", () => {
+  init();
+});
