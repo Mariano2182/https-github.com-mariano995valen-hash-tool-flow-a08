@@ -1,162 +1,270 @@
-// script.js — GitHub Pages + Import Map compatible
-
+// script.js (ES Module) — GitHub Pages friendly (con importmap)
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-const qs = (s) => document.querySelector(s);
+const qs = (sel, parent = document) => parent.querySelector(sel);
+const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
+
+function setText(id, text) {
+  const el = typeof id === "string" ? qs(id) : id;
+  if (el) el.textContent = text;
+}
 
 const state = {
-  scene: null,
-  camera: null,
-  renderer: null,
-  controls: null,
-  group: null,
-  version: 0
+  session: null,
+  role: null,
+  model: null,
+  version: 0,
+
+  preview: {
+    ready: false,
+    renderer: null,
+    scene: null,
+    camera: null,
+    controls: null,
+    animId: null,
+    groupName: "RMM_PREVIEW",
+    ro: null,
+  },
 };
 
-/* ---------------- INIT VISOR ---------------- */
-function initViewer() {
-  const container = qs("#ifc-viewer");
-  container.innerHTML = "";
+// -------------------- UTILIDADES --------------------
+function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
+function nowISO() { return new Date().toISOString(); }
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(container.clientWidth, container.clientHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  container.appendChild(renderer.domElement);
-
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x071226);
-
-  const camera = new THREE.PerspectiveCamera(
-    55,
-    container.clientWidth / container.clientHeight,
-    0.1,
-    2000
-  );
-  camera.position.set(40, 20, 60);
-
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.target.set(0, 6, 20);
-  controls.enableDamping = true;
-
-  scene.add(new THREE.GridHelper(300, 120));
-  scene.add(new THREE.AxesHelper(5));
-
-  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-  const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-  dir.position.set(40, 80, 20);
-  scene.add(dir);
-
-  function animate() {
-    requestAnimationFrame(animate);
-    controls.update();
-    renderer.render(scene, camera);
-  }
-  animate();
-
-  state.scene = scene;
-  state.camera = camera;
-  state.renderer = renderer;
-  state.controls = controls;
-
-  qs("#viewer-status").textContent = "Preview activo";
+function fmt(n) {
+  try { return Number(n).toLocaleString("es-AR"); }
+  catch { return String(n); }
 }
 
-/* ---------------- GEOMETRÍA ---------------- */
-function addMember(a, b, size, mat) {
-  const dir = new THREE.Vector3().subVectors(b, a);
-  const len = dir.length();
-  const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
-
-  const geo = new THREE.BoxGeometry(size, size, len);
-  const mesh = new THREE.Mesh(geo, mat);
-
-  mesh.position.copy(mid);
-  mesh.quaternion.setFromUnitVectors(
-    new THREE.Vector3(0, 0, 1),
-    dir.normalize()
-  );
-
-  state.group.add(mesh);
+function downloadText(filename, text, mime = "text/plain") {
+  const blob = new Blob([text], { type: `${mime};charset=utf-8` });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
-function generateModel() {
-  if (!state.scene) initViewer();
+// -------------------- TOOLTIP ACCESSIBLE --------------------
+function enhanceTooltips() {
+  qsa("[data-tooltip]").forEach((el) => {
+    if (!el.getAttribute("aria-label")) {
+      el.setAttribute("aria-label", el.getAttribute("data-tooltip"));
+    }
+  });
+}
 
-  if (state.group) state.scene.remove(state.group);
-  state.group = new THREE.Group();
-  state.scene.add(state.group);
+// -------------------- MODAL --------------------
+function openModal(id) {
+  const modal = qs(`#${id}`);
+  if (!modal) return;
+  modal.classList.add("active");
+  modal.setAttribute("aria-hidden", "false");
+}
+function closeModal(modal) {
+  if (!modal) return;
+  modal.classList.remove("active");
+  modal.setAttribute("aria-hidden", "true");
+}
+function bindModals() {
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const action = btn.getAttribute("data-action");
+    if (action === "open-demo") openModal("demo-modal");
+  });
 
-  const span = +qs("#ind-span").value;
-  const length = +qs("#ind-length").value;
-  const height = +qs("#ind-height").value;
-  const frames = +qs("#ind-frames").value;
-  const slope = +qs("#ind-slope").value / 100;
-  const roof = qs("#ind-roof").value;
+  qsa("[data-close]").forEach((btn) => {
+    btn.addEventListener("click", () => closeModal(btn.closest(".modal")));
+  });
 
-  const half = span / 2;
-  const step = length / (frames - 1);
+  qsa(".modal").forEach((m) => {
+    m.addEventListener("click", (e) => {
+      if (e.target === m) closeModal(m);
+    });
+  });
 
-  const matCol = new THREE.MeshStandardMaterial({ color: 0x2563eb });
-  const matRoof = new THREE.MeshStandardMaterial({ color: 0xf59e0b });
-  const matPurlin = new THREE.MeshStandardMaterial({ color: 0xfbbf24 });
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest('[data-action="select-role"]');
+    if (!btn) return;
+    state.role = btn.getAttribute("data-role");
+    setText("#role-status", `Rol seleccionado: ${state.role}.`);
+    closeModal(qs("#demo-modal"));
+  });
+}
 
-  function roofY(x) {
-    if (roof === "plana") return height;
-    if (roof === "una_agua") return height + ((x + half) / span) * span * slope;
-    return height + (1 - Math.abs(x) / half) * half * slope;
-  }
+// -------------------- NAV SCROLL --------------------
+function bindScrollButtons() {
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest('[data-action="scroll"]');
+    if (!btn) return;
+    const target = btn.getAttribute("data-target");
+    if (!target) return;
+    const el = qs(target);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
+
+// -------------------- INDUSTRIAL CONTROLS --------------------
+function updateIndustrialLabels() {
+  if (qs("#ind-span")) setText("#ind-span-value", qs("#ind-span").value);
+  if (qs("#ind-length")) setText("#ind-length-value", qs("#ind-length").value);
+  if (qs("#ind-height")) setText("#ind-height-value", qs("#ind-height").value);
+  if (qs("#ind-frames")) setText("#ind-frames-value", qs("#ind-frames").value);
+  if (qs("#ind-slope")) setText("#ind-slope-value", qs("#ind-slope").value);
+}
+
+function bindIndustrialControls() {
+  ["#ind-span", "#ind-length", "#ind-height", "#ind-frames", "#ind-slope"].forEach((id) => {
+    const el = qs(id);
+    if (!el) return;
+    el.addEventListener("input", updateIndustrialLabels);
+  });
+  updateIndustrialLabels();
+
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const action = btn.dataset.action;
+
+    if (action === "generate-model") generateModelFromIndustrial();
+    if (action === "export-bom") exportBOM();
+    if (action === "export-json") exportJSON();
+    if (action === "run-rules") runRules();
+    if (action === "reset-viewer") resetViewer();
+  });
+}
+
+// -------------------- MODELO PARAMÉTRICO (JSON) --------------------
+function generateModelFromIndustrial() {
+  const span = Number(qs("#ind-span")?.value || 24);
+  const length = Number(qs("#ind-length")?.value || 60);
+  const height = Number(qs("#ind-height")?.value || 8);
+  const frames = Number(qs("#ind-frames")?.value || 10);
+  const roof = qs("#ind-roof")?.value || "dos_aguas";
+
+  const slopePct = Number(qs("#ind-slope")?.value || 10);
+  const slope = clamp(slopePct / 100, 0.02, 0.25);
+
+  state.version += 1;
+
+  const model = {
+    meta: { createdAt: nowISO(), version: state.version, unit: "m", source: "RMM Industrial UI" },
+    building: { type: "nave", roof, span, length, height, frames, slope },
+    elements: [],
+  };
 
   for (let i = 0; i < frames; i++) {
-    const z = i * step;
-
-    const baseL = new THREE.Vector3(-half, 0, z);
-    const baseR = new THREE.Vector3(half, 0, z);
-    const topL = new THREE.Vector3(-half, roof === "una_agua" ? height : height, z);
-    const topR = new THREE.Vector3(half, roof === "una_agua" ? height + span * slope : height, z);
-
-    addMember(baseL, topL, 0.18, matCol);
-    addMember(baseR, topR, 0.18, matCol);
-
-    if (roof === "dos_aguas") {
-      const ridge = new THREE.Vector3(0, height + half * slope, z);
-      addMember(new THREE.Vector3(-half, height, z), ridge, 0.14, matRoof);
-      addMember(ridge, new THREE.Vector3(half, height, z), 0.14, matRoof);
-    } else {
-      addMember(topL, topR, 0.14, matRoof);
-    }
+    model.elements.push({ id: `COL-L-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
+    model.elements.push({ id: `COL-R-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
+    model.elements.push({ id: `BEAM-${i + 1}`, type: "viga", qty: 1, length: span, weightKg: span * 55 });
   }
 
-  // correas entre pórticos
-  for (let i = 0; i < frames - 1; i++) {
-    const z0 = i * step;
-    const z1 = (i + 1) * step;
+  const purlins = Math.max(6, Math.round(length / 4));
+  model.elements.push({ id: `PURLINS`, type: "correas", qty: purlins, length: span, weightKg: purlins * span * 8 });
 
-    for (let k = 0; k <= 8; k++) {
-      const x = -half + (k / 8) * span;
-      addMember(
-        new THREE.Vector3(x, roofY(x), z0),
-        new THREE.Vector3(x, roofY(x), z1),
-        0.08,
-        matPurlin
-      );
-    }
-  }
+  const girts = Math.max(6, Math.round(length / 5)) * 2;
+  model.elements.push({ id: `GIRTS`, type: "correas_columna", qty: girts, length: length, weightKg: girts * 6 });
 
-  state.version++;
-  qs("#kpi-elements").textContent = state.group.children.length;
-  qs("#kpi-version").textContent = state.version;
-  qs("#kpi-weight").textContent = Math.round(state.group.children.length * 250);
+  state.model = model;
+
+  setText("#kpi-version", String(state.version));
+  renderBOMFromModel();
+  refreshKPIs();
+  runRules();
+
+  setText("#ifc-status", "Modelo generado. Preview 3D actualizado.");
+  renderParametricPreview();
 }
 
-/* ---------------- EVENTS ---------------- */
-document.addEventListener("click", (e) => {
-  if (e.target.matches("[data-action='generate-model']")) {
-    generateModel();
-  }
-});
+function computeTotals(model) {
+  const elements = model?.elements || [];
+  const count = elements.reduce((acc, e) => acc + (Number(e.qty) || 0), 0);
+  const weight = elements.reduce((acc, e) => acc + (Number(e.weightKg) || 0), 0);
+  return { count, weight };
+}
 
-/* ---------------- START ---------------- */
-window.addEventListener("DOMContentLoaded", () => {
-  initViewer();
-});
+function refreshKPIs() {
+  const { count, weight } = computeTotals(state.model);
+  setText("#kpi-elements", fmt(count));
+  setText("#kpi-weight", fmt(Math.round(weight)));
+}
+
+// -------------------- BOM TABLE --------------------
+function renderBOMFromModel() {
+  const tbody = qs("#materials-table");
+  if (!tbody) return;
+
+  if (!state.model) {
+    tbody.innerHTML = `<tr><td colspan="4">Generá un modelo o cargá un IFC.</td></tr>`;
+    return;
+  }
+
+  const map = new Map();
+  for (const e of state.model.elements) {
+    const k = e.type;
+    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0 };
+    cur.qty += Number(e.qty) || 0;
+    cur.weightKg += Number(e.weightKg) || 0;
+    map.set(k, cur);
+  }
+
+  const rows = [...map.values()].sort((a, b) => a.type.localeCompare(b.type));
+  tbody.innerHTML = rows.map((r) => `
+    <tr>
+      <td>${r.type}</td>
+      <td>${fmt(r.qty)}</td>
+      <td>${fmt(Math.round(r.weightKg))}</td>
+      <td>OK</td>
+    </tr>
+  `).join("");
+}
+
+// -------------------- EXPORTS --------------------
+function exportJSON() {
+  if (!state.model) return setText("#ifc-status", "No hay modelo para exportar.");
+  downloadText(`rmm_model_v${state.version}.json`, JSON.stringify(state.model, null, 2), "application/json");
+}
+
+function exportBOM() {
+  if (!state.model) return setText("#ifc-status", "No hay modelo para exportar.");
+
+  const map = new Map();
+  for (const e of state.model.elements) {
+    const k = e.type;
+    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0 };
+    cur.qty += Number(e.qty) || 0;
+    cur.weightKg += Number(e.weightKg) || 0;
+    map.set(k, cur);
+  }
+
+  const rows = [...map.values()];
+  const header = "Elemento,Cantidad,Peso_kg,Version\n";
+  const lines = rows.map((r) => `${r.type},${r.qty},${Math.round(r.weightKg)},${state.version}`).join("\n");
+  downloadText(`rmm_bom_v${state.version}.csv`, header + lines, "text/csv");
+}
+
+// -------------------- REGLAS --------------------
+function rule(id, name, ok, msg) { return { id, name, ok: Boolean(ok), msg: msg || "" }; }
+
+function runRules() {
+  const summary = qs("#rules-summary");
+  const list = qs("#rules-list");
+  if (!summary || !list) return;
+
+  if (!state.model) {
+    summary.textContent = "No hay modelo para validar.";
+    list.innerHTML = "";
+    return;
+  }
+
+  const b = state.model.building;
+  const results = [];
+  results.push(rule("R1", "Dimensiones mínimas", b.span >= 10 && b.length >= 20 && b.height >= 4, "Ancho/Largo/Altura fuera de rango mínimo."));
+  results.push(rule("R2", "Cantidad de pórticos", b.frames >= 4 && b.frames <= 24, "Cantidad de pórticos fuera de rango."));
+  results.push(rule("R3", "Pendiente razonable", b.slope >= 0.02 && b.slope <= 0.25, "Pendiente fuera de rango típico."));
+  results.push(rule("R4", "Elementos generados", (state.model.elements?.length || 0) > 0, "No se generaron elementos."));
+
+  const ok = results.filter((r) => r.ok).length;
+  summary.textContent = `Validaciones: ${ok}/${results.length} OK`;
