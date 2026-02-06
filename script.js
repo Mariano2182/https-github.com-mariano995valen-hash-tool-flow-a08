@@ -20,6 +20,7 @@ const state = {
     controls: null,
     animId: null,
     groupName: "RMM_PREVIEW",
+    ro: null,
   },
 };
 
@@ -98,7 +99,8 @@ function bindModals() {
     const btn = e.target.closest('[data-action="select-role"]');
     if (!btn) return;
     state.role = btn.getAttribute("data-role");
-    qs("#role-status").textContent = `Rol seleccionado: ${state.role}. Podés continuar con el asistente o la vista industrial.`;
+    qs("#role-status").textContent =
+      `Rol seleccionado: ${state.role}. Podés continuar con el asistente o la vista industrial.`;
     closeModal(qs("#demo-modal"));
   });
 }
@@ -254,16 +256,16 @@ function setIndustrialInputsFromWizard(data) {
   if (height) height.value = clamp(Number(data.altura || 8), 4, 16);
   if (frames) frames.value = clamp(Number(data.porticos || 10), 4, 24);
 
-  // pendiente se mantiene como el usuario la dejó (industrial)
   updateIndustrialLabels();
 }
 
 // -------------------- INDUSTRIAL CONTROLS --------------------
 function updateIndustrialLabels() {
-  qs("#ind-span-value").textContent = qs("#ind-span").value;
-  qs("#ind-length-value").textContent = qs("#ind-length").value;
-  qs("#ind-height-value").textContent = qs("#ind-height").value;
-  qs("#ind-frames-value").textContent = qs("#ind-frames").value;
+  const a = qs("#ind-span"); const b = qs("#ind-length"); const c = qs("#ind-height"); const d = qs("#ind-frames");
+  if (a) qs("#ind-span-value").textContent = a.value;
+  if (b) qs("#ind-length-value").textContent = b.value;
+  if (c) qs("#ind-height-value").textContent = c.value;
+  if (d) qs("#ind-frames-value").textContent = d.value;
 
   const slopeEl = qs("#ind-slope");
   const slopeVal = qs("#ind-slope-value");
@@ -297,7 +299,6 @@ function bindIndustrialControls() {
     if (action === "load-remote") loadRemoteVersion();
   });
 
-  // IFC input: (dejamos para futuro IFC.js). Por ahora solo avisamos.
   const ifcInput = qs("#ifc-file");
   if (ifcInput) {
     ifcInput.addEventListener("change", async (e) => {
@@ -319,7 +320,6 @@ function generateModelFromIndustrial() {
   const frames = Number(qs("#ind-frames")?.value || 10);
   const roof = qs("#ind-roof")?.value || "dos_aguas";
 
-  // pendiente % elegida por el usuario
   const slopePct = Number(qs("#ind-slope")?.value || 10);
   const slope = clamp(slopePct / 100, 0.02, 0.25);
 
@@ -327,11 +327,10 @@ function generateModelFromIndustrial() {
 
   const model = {
     meta: { createdAt: nowISO(), version: state.version, unit: "m", source: "RMM Industrial UI" },
-    building: { type: "nave", roof, span, length, height, frames, slope }, // <- slope guardada acá
+    building: { type: "nave", roof, span, length, height, frames, slope },
     elements: [],
   };
 
-  // Elementos base BOM (simple demo)
   for (let i = 0; i < frames; i++) {
     model.elements.push({ id: `COL-L-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
     model.elements.push({ id: `COL-R-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
@@ -341,7 +340,6 @@ function generateModelFromIndustrial() {
   const purlins = Math.max(6, Math.round(length / 4));
   model.elements.push({ id: `PURLINS`, type: "correas", qty: purlins, length: span, weightKg: purlins * span * 8 });
 
-  // girts (correas de columnas)
   const girts = Math.max(6, Math.round(length / 5)) * 2;
   model.elements.push({ id: `GIRTS`, type: "correas_columna", qty: girts, length: length, weightKg: girts * 6 });
 
@@ -356,7 +354,7 @@ function generateModelFromIndustrial() {
 
   qs("#ifc-status").textContent = "Modelo generado. Preview 3D actualizado.";
 
-  // Dibuja preview
+  // ✅ SIEMPRE render después de generar modelo
   renderParametricPreview();
 }
 
@@ -478,6 +476,20 @@ function rule(id, name, ok, msg) {
 }
 
 // -------------------- PREVIEW 3D (Three.js) --------------------
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function waitForContainerSize(container, tries = 12) {
+  for (let i = 0; i < tries; i++) {
+    const r = container.getBoundingClientRect();
+    if (r.width > 50 && r.height > 50) return { w: r.width, h: r.height };
+    await sleep(120);
+  }
+  const r = container.getBoundingClientRect();
+  return { w: Math.max(r.width, 300), h: Math.max(r.height, 300) };
+}
+
 async function ensurePreview3D() {
   if (state.preview.ready) return true;
 
@@ -485,6 +497,9 @@ async function ensurePreview3D() {
   if (!container) return false;
 
   try {
+    // Espera a que el contenedor tenga tamaño real
+    const { w, h } = await waitForContainerSize(container);
+
     // Import Three + OrbitControls por URL absoluta (GitHub Pages OK)
     const THREE = await import("https://unpkg.com/three@0.158.0/build/three.module.js");
     const oc = await import("https://unpkg.com/three@0.158.0/examples/jsm/controls/OrbitControls.js");
@@ -492,21 +507,30 @@ async function ensurePreview3D() {
     state.preview.THREE = THREE;
     state.preview.OrbitControls = oc.OrbitControls;
 
-    const { WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, AxesHelper, GridHelper, AmbientLight, DirectionalLight } = THREE;
+    const {
+      WebGLRenderer,
+      Scene,
+      PerspectiveCamera,
+      Color,
+      Fog,
+      AxesHelper,
+      GridHelper,
+      AmbientLight,
+      DirectionalLight
+    } = THREE;
 
-    // Limpia contenido previo
     container.innerHTML = "";
 
     const renderer = new WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setSize(w, h);
     container.appendChild(renderer.domElement);
 
     const scene = new Scene();
     scene.background = new Color(0x071226);
     scene.fog = new Fog(0x071226, 80, 500);
 
-    const camera = new PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 2000);
+    const camera = new PerspectiveCamera(55, w / h, 0.1, 4000);
     camera.position.set(35, 18, 60);
 
     const controls = new state.preview.OrbitControls(camera, renderer.domElement);
@@ -535,16 +559,32 @@ async function ensurePreview3D() {
     state.preview.camera = camera;
     state.preview.controls = controls;
 
-    // resize
+    // ResizeObserver + fallback resize
+    if (state.preview.ro) {
+      try { state.preview.ro.disconnect(); } catch {}
+    }
+
     const ro = new ResizeObserver(() => {
-      if (!state.preview.renderer) return;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-      state.preview.renderer.setSize(w, h);
-      state.preview.camera.aspect = w / h;
+      if (!state.preview.renderer || !state.preview.camera) return;
+      const r = container.getBoundingClientRect();
+      const W = Math.max(1, r.width);
+      const H = Math.max(1, r.height);
+      state.preview.renderer.setSize(W, H);
+      state.preview.camera.aspect = W / H;
       state.preview.camera.updateProjectionMatrix();
     });
     ro.observe(container);
+    state.preview.ro = ro;
+
+    window.addEventListener("resize", () => {
+      if (!state.preview.renderer || !state.preview.camera) return;
+      const r = container.getBoundingClientRect();
+      const W = Math.max(1, r.width);
+      const H = Math.max(1, r.height);
+      state.preview.renderer.setSize(W, H);
+      state.preview.camera.aspect = W / H;
+      state.preview.camera.updateProjectionMatrix();
+    });
 
     // animation loop
     const tick = () => {
@@ -556,7 +596,7 @@ async function ensurePreview3D() {
 
     state.preview.ready = true;
     qs("#viewer-status").textContent = "Preview activo";
-    qs("#ifc-status").textContent = "Preview 3D listo (sin IFC).";
+    qs("#ifc-status").textContent = "Preview 3D listo (sin IFC). Generá un modelo para ver estructura.";
 
     return true;
   } catch (err) {
@@ -580,8 +620,11 @@ function resetViewer() {
   const container = qs("#ifc-viewer");
   if (!container) return;
 
-  // stop anim
   if (state.preview.animId) cancelAnimationFrame(state.preview.animId);
+  if (state.preview.ro) {
+    try { state.preview.ro.disconnect(); } catch {}
+    state.preview.ro = null;
+  }
 
   state.preview.ready = false;
   state.preview.THREE = null;
@@ -598,7 +641,6 @@ function resetViewer() {
 }
 
 function addMember(THREE, parent, a, b, thickness, material) {
-  // Crea un “tubo rectangular” (box) orientado entre dos puntos (a->b)
   const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length();
   if (len <= 0.0001) return;
@@ -608,7 +650,6 @@ function addMember(THREE, parent, a, b, thickness, material) {
   const geom = new THREE.BoxGeometry(thickness, thickness, len);
   const mesh = new THREE.Mesh(geom, material);
 
-  // orient: por defecto box apunta en Z, rotamos hacia dir
   mesh.position.copy(mid);
   const zAxis = new THREE.Vector3(0, 0, 1);
   const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.normalize());
@@ -623,7 +664,7 @@ function fitToGroup(THREE, camera, controls, group) {
   const center = box.getCenter(new THREE.Vector3());
 
   const maxDim = Math.max(size.x, size.y, size.z);
-  const dist = maxDim * 1.6;
+  const dist = Math.max(15, maxDim * 1.6);
 
   camera.position.set(center.x + dist, center.y + dist * 0.55, center.z + dist);
   controls.target.copy(center);
@@ -640,7 +681,6 @@ async function renderParametricPreview() {
   const THREE = state.preview.THREE;
   const scene = state.preview.scene;
 
-  // borrar preview anterior
   const old = scene.getObjectByName(state.preview.groupName);
   if (old) scene.remove(old);
 
@@ -649,34 +689,29 @@ async function renderParametricPreview() {
 
   const { span, length, height, frames, roof, slope } = state.model.building;
 
-  // ejes: X (ancho), Y (altura), Z (largo)
   const halfSpan = span / 2;
   const step = frames > 1 ? length / (frames - 1) : length;
 
-  // materiales
   const matCol = new THREE.MeshStandardMaterial({ color: 0x2563eb, metalness: 0.2, roughness: 0.6 });
   const matRafter = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.2, roughness: 0.55 });
   const matPurlin = new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.1, roughness: 0.7 });
   const matGirt = new THREE.MeshStandardMaterial({ color: 0x93c5fd, metalness: 0.1, roughness: 0.75 });
 
-  // espesores visuales (no estructurales)
   const colSize = Math.max(0.12, span * 0.006);
   const rafterSize = Math.max(0.10, span * 0.005);
   const purlinSize = Math.max(0.06, span * 0.0035);
   const girtSize = Math.max(0.05, span * 0.003);
 
-  // Función de altura de techo para un punto X (en un mismo pórtico)
   function roofY(x) {
-    if (roof === "plana") {
-      return height; // plana sin pendiente (si querés 2%: height + (x+halfSpan)*slope)
-    }
+    if (roof === "plana") return height;
+
     if (roof === "una_agua") {
-      // altura libre = alero bajo (izq). sube hacia der.
       const t = (x + halfSpan) / span; // 0..1
       return height + t * (span * slope);
     }
-    // dos aguas: alero = height, cumbrera sube en el centro
-    const t = Math.abs(x) / halfSpan; // 0 en centro, 1 en alero
+
+    // dos aguas
+    const t = Math.abs(x) / halfSpan; // 0..1
     return height + (1 - t) * (halfSpan * slope);
   }
 
@@ -684,7 +719,6 @@ async function renderParametricPreview() {
   for (let i = 0; i < frames; i++) {
     const z = i * step;
 
-    // alturas de columnas según cubierta
     let topL = new THREE.Vector3(-halfSpan, height, z);
     let topR = new THREE.Vector3(halfSpan, height, z);
 
@@ -695,25 +729,19 @@ async function renderParametricPreview() {
       topR = new THREE.Vector3(halfSpan, highEaveY, z);
     }
 
-    // columnas
     const baseL = new THREE.Vector3(-halfSpan, 0, z);
     const baseR = new THREE.Vector3(halfSpan, 0, z);
+
     addMember(THREE, group, baseL, topL, colSize, matCol);
     addMember(THREE, group, baseR, topR, colSize, matCol);
 
-    // vigas/cabios
     if (roof === "plana") {
-      // viga superior plana
       const a = new THREE.Vector3(-halfSpan, roofY(-halfSpan), z);
       const b = new THREE.Vector3(halfSpan, roofY(halfSpan), z);
       addMember(THREE, group, a, b, rafterSize, matRafter);
-
     } else if (roof === "una_agua") {
-      // cabio entre aleros (topL y topR, ya coinciden)
       addMember(THREE, group, topL, topR, rafterSize, matRafter);
-
     } else {
-      // dos aguas: dos cabios a cumbrera
       const eaveL = new THREE.Vector3(-halfSpan, height, z);
       const eaveR = new THREE.Vector3(halfSpan, height, z);
       const ridge = new THREE.Vector3(0, height + halfSpan * slope, z);
@@ -723,42 +751,37 @@ async function renderParametricPreview() {
     }
   }
 
-  // -------------------- CORREAS DE TECHO (segmentadas POR VANO) --------------------
-  // Espaciamiento típico visual. (No es cálculo estructural, solo layout)
-  const purlinSpacing = 1.5; // m (podés ajustar)
+  // -------------------- CORREAS DE TECHO (POR VANO) --------------------
+  const purlinSpacing = 1.5;
   const purlinCount = Math.max(2, Math.floor(span / purlinSpacing));
 
-  // Generamos líneas en X, y las segmentamos entre pórticos (z_i -> z_{i+1})
   for (let bay = 0; bay < frames - 1; bay++) {
     const z0 = bay * step;
     const z1 = (bay + 1) * step;
 
     if (roof === "dos_aguas") {
-      // lado izquierdo (x: -halfSpan..0) y derecho (0..halfSpan)
-      for (let k = 0; k <= Math.floor(purlinCount / 2); k++) {
-        const xL = -halfSpan + (k / Math.floor(purlinCount / 2 || 1)) * halfSpan; // -halfSpan..0
-        const xR = (k / Math.floor(purlinCount / 2 || 1)) * halfSpan;             // 0..halfSpan
+      const halfCount = Math.max(1, Math.floor(purlinCount / 2));
 
-        // correas lado izq
+      for (let k = 0; k <= halfCount; k++) {
+        const t = k / halfCount;
+
+        const xL = -halfSpan + t * halfSpan; // -halfSpan..0
         const aL = new THREE.Vector3(xL, roofY(xL), z0);
         const bL = new THREE.Vector3(xL, roofY(xL), z1);
         addMember(THREE, group, aL, bL, purlinSize, matPurlin);
 
-        // correas lado der (salteo x=0 duplicado)
         if (k > 0) {
+          const xR = t * halfSpan; // 0..halfSpan
           const aR = new THREE.Vector3(xR, roofY(xR), z0);
           const bR = new THREE.Vector3(xR, roofY(xR), z1);
           addMember(THREE, group, aR, bR, purlinSize, matPurlin);
         }
       }
 
-      // correa en cumbrera (x=0)
       const ridgeA = new THREE.Vector3(0, roofY(0), z0);
       const ridgeB = new THREE.Vector3(0, roofY(0), z1);
       addMember(THREE, group, ridgeA, ridgeB, purlinSize, matPurlin);
-
     } else {
-      // plana o una_agua: correas en todo el ancho
       for (let k = 0; k <= purlinCount; k++) {
         const x = -halfSpan + (k / purlinCount) * span;
         const a = new THREE.Vector3(x, roofY(x), z0);
@@ -768,16 +791,11 @@ async function renderParametricPreview() {
     }
   }
 
-  // -------------------- CORREAS / LARGUEROS EN COLUMNAS (segmentadas POR VANO) --------------------
-  // Colocamos 3 alturas típicas relativas (40%, 60%, 80%)
+  // -------------------- CORREAS EN COLUMNAS (POR VANO) --------------------
   const levels = [0.4, 0.6, 0.8];
 
-  function colHeightLeft() {
-    return height; // en una_agua, izq es alero bajo
-  }
-  function colHeightRight() {
-    return roof === "una_agua" ? height + span * slope : height;
-  }
+  function colHeightLeft() { return height; }
+  function colHeightRight() { return roof === "una_agua" ? height + span * slope : height; }
 
   for (let bay = 0; bay < frames - 1; bay++) {
     const z0 = bay * step;
@@ -790,12 +808,10 @@ async function renderParametricPreview() {
       const yL = Math.min(hL - 0.25, hL * r);
       const yR = Math.min(hR - 0.25, hR * r);
 
-      // izquierda
       const aL = new THREE.Vector3(-halfSpan, yL, z0);
       const bL = new THREE.Vector3(-halfSpan, yL, z1);
       addMember(THREE, group, aL, bL, girtSize, matGirt);
 
-      // derecha
       const aR = new THREE.Vector3(halfSpan, yR, z0);
       const bR = new THREE.Vector3(halfSpan, yR, z1);
       addMember(THREE, group, aR, bR, girtSize, matGirt);
@@ -804,7 +820,6 @@ async function renderParametricPreview() {
 
   scene.add(group);
 
-  // encuadrar cámara
   fitToGroup(THREE, state.preview.camera, state.preview.controls, group);
 
   qs("#viewer-status").textContent = "Preview activo";
@@ -844,9 +859,9 @@ function loadLocalVersion() {
   state.model = latest.model;
   state.version = latest.version || state.version;
 
-  // volcar pendiente al UI si existe
   if (state.model?.building?.slope != null && qs("#ind-slope")) {
     qs("#ind-slope").value = String(Math.round(state.model.building.slope * 100));
+    updateIndustrialLabels();
   }
 
   qs("#persistence-status").textContent = `Versión cargada (v${state.version}).`;
@@ -975,7 +990,6 @@ async function loadRemoteVersion() {
     state.model = latest.bim_json;
     state.version = state.model?.meta?.version || state.version;
 
-    // volcar pendiente al UI
     if (state.model?.building?.slope != null && qs("#ind-slope")) {
       qs("#ind-slope").value = String(Math.round(state.model.building.slope * 100));
       updateIndustrialLabels();
@@ -1006,10 +1020,12 @@ async function init() {
   runRules();
   renderLocalVersions();
 
-  // Inicializa preview para que no esté “vacío”
+  // Inicializa preview
   await ensurePreview3D();
-  qs("#viewer-status").textContent = "Preview activo";
-  qs("#ifc-status").textContent = "Preview 3D listo. Generá un modelo para ver estructura.";
+
+  // ✅ PARA QUE NUNCA QUEDE VACÍO: generamos un modelo inicial
+  // (si preferís que arranque vacío, comentá estas 2 líneas)
+  generateModelFromIndustrial();
 }
 
 window.addEventListener("DOMContentLoaded", () => {
