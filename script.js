@@ -1,4 +1,4 @@
-// script.js (ES Module) — GitHub Pages friendly (imports por URL completa)
+// script.js (ES Module) — GitHub Pages friendly (usa importmap para "three")
 
 const qs = (sel, parent = document) => parent.querySelector(sel);
 const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
@@ -20,6 +20,7 @@ const state = {
     controls: null,
     animId: null,
     groupName: "RMM_PREVIEW",
+    resizeObserver: null,
   },
 };
 
@@ -67,6 +68,7 @@ function openModal(id) {
 }
 
 function closeModal(modal) {
+  if (!modal) return;
   modal.classList.remove("active");
   modal.setAttribute("aria-hidden", "true");
 }
@@ -143,8 +145,8 @@ function bindAuth() {
 
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    const email = qs("#auth-email").value.trim();
-    const role = qs("#auth-role").value;
+    const email = qs("#auth-email")?.value?.trim() || "";
+    const role = qs("#auth-role")?.value || "Cliente";
     state.session = { email, role, at: nowISO() };
     state.role = role;
 
@@ -179,7 +181,7 @@ function bindAuth() {
 
     try {
       const client = window.supabase.createClient(url, key);
-      const email = qs("#auth-email").value.trim();
+      const email = qs("#auth-email")?.value?.trim() || "";
       const { error } = await client.auth.signInWithOtp({ email });
       if (status) status.textContent = error ? `Error: ${error.message}` : "Magic link enviado (revisá tu email).";
     } catch (err) {
@@ -296,12 +298,8 @@ function bindIndustrialControls() {
   ].forEach((id) => {
     const el = qs(id);
     if (!el) return;
-    el.addEventListener("input", () => {
-      updateIndustrialLabels();
-    });
-    el.addEventListener("change", () => {
-      updateIndustrialLabels();
-    });
+    el.addEventListener("input", updateIndustrialLabels);
+    el.addEventListener("change", updateIndustrialLabels);
   });
 
   updateIndustrialLabels();
@@ -356,11 +354,34 @@ function generateModelFromIndustrial() {
   const bays = Math.max(1, frames - 1);
   const step = frames > 1 ? length / (frames - 1) : length;
 
+  // ✅ métricas ingenieriles
+  const purlinLines = Math.max(2, Math.floor(span / purlinSpacing) + 1);
+
+  // largueros por altura (niveles)
+  const usable = Math.max(0, height - 1.5);
+  const girtLevels = Math.max(2, Math.floor(usable / girtSpacing) + 1); // min 2
+
   state.version += 1;
 
   const model = {
     meta: { createdAt: nowISO(), version: state.version, unit: "m", source: "RMM Industrial UI" },
-    building: { type: "nave", roof, cover, span, length, height, frames, slope, purlinSpacing, girtSpacing },
+    building: {
+      type: "nave",
+      roof,
+      cover,
+      span,
+      length,
+      height,
+      frames,
+      slope,
+      purlinSpacing,
+      girtSpacing,
+      // ✅ agregado
+      bays,
+      step,
+      purlinLines,
+      girtLevels,
+    },
     elements: [],
   };
 
@@ -369,7 +390,6 @@ function generateModelFromIndustrial() {
     model.elements.push({ id: `COL-L-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
     model.elements.push({ id: `COL-R-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
 
-    // cabio/viga: en dos aguas serían 2 cabios, en una agua 1, en plana 1
     if (roof === "dos_aguas") {
       const rafterLen = Math.hypot(span / 2, (span / 2) * slope);
       model.elements.push({ id: `RAF-L-${i + 1}`, type: "cabio", qty: 1, length: rafterLen, weightKg: rafterLen * 40 });
@@ -380,11 +400,8 @@ function generateModelFromIndustrial() {
     }
   }
 
-  // cantidad de líneas de correas según separación
-  const linesAcross = Math.max(2, Math.floor(span / purlinSpacing) + 1);
-
-  // correas segmentadas por vano: cantidad = líneas * vanos
-  const purlinMembers = linesAcross * bays;
+  // correas segmentadas por vano
+  const purlinMembers = purlinLines * bays;
   model.elements.push({
     id: `PURLINS`,
     type: "correas",
@@ -393,10 +410,8 @@ function generateModelFromIndustrial() {
     weightKg: purlinMembers * step * 8,
   });
 
-  // largueros por altura según separación: desde ~1.2m hasta alero - 0.3m
-  const usable = Math.max(0, height - 1.5);
-  const levels = Math.max(2, Math.floor(usable / girtSpacing) + 1); // min 2
-  const girtMembers = levels * 2 * bays; // 2 lados
+  // largueros segmentados por vano (2 lados)
+  const girtMembers = girtLevels * 2 * bays;
   model.elements.push({
     id: `GIRTS`,
     type: "correas_columna",
@@ -448,6 +463,8 @@ function renderBOMFromModel() {
     return;
   }
 
+  const b = state.model.building || {};
+
   const map = new Map();
   for (const e of state.model.elements) {
     const k = e.type;
@@ -457,19 +474,41 @@ function renderBOMFromModel() {
     map.set(k, cur);
   }
 
-  const rows = [...map.values()].sort((a, b) => a.type.localeCompare(b.type));
-  tbody.innerHTML = rows
-    .map((r) => {
-      return `
+  const rows = [...map.values()].sort((a, b2) => a.type.localeCompare(b2.type));
+
+  // ✅ filas “ingenieriles” (no son miembros, son cantidades de líneas/niveles)
+  const infoRows = [
+    { label: "líneas_corre as_techo", qty: b.purlinLines ?? "-", weight: "", status: "INFO" },
+    { label: "niveles_largueros_pared", qty: b.girtLevels ?? "-", weight: "", status: "INFO" },
+  ];
+
+  const infoHtml = infoRows
+    .map(
+      (r) => `
+      <tr>
+        <td>${r.label}</td>
+        <td>${r.qty}</td>
+        <td>${r.weight}</td>
+        <td>${r.status}</td>
+      </tr>
+    `
+    )
+    .join("");
+
+  const bomHtml = rows
+    .map(
+      (r) => `
       <tr>
         <td>${r.type}</td>
         <td>${fmt(r.qty)}</td>
         <td>${fmt(Math.round(r.weightKg))}</td>
         <td>OK</td>
       </tr>
-    `;
-    })
+    `
+    )
     .join("");
+
+  tbody.innerHTML = infoHtml + bomHtml;
 }
 
 // -------------------- EXPORTS --------------------
@@ -489,6 +528,8 @@ function exportBOM() {
     return;
   }
 
+  const b = state.model.building || {};
+
   const map = new Map();
   for (const e of state.model.elements) {
     const k = e.type;
@@ -500,8 +541,15 @@ function exportBOM() {
 
   const rows = [...map.values()];
   const header = "Elemento,Cantidad,Peso_kg,Version\n";
-  const lines = rows.map((r) => `${r.type},${r.qty},${Math.round(r.weightKg)},${state.version}`).join("\n");
-  downloadText(`rmm_bom_v${state.version}.csv`, header + lines, "text/csv");
+
+  // ✅ agrega info ingenieril en CSV
+  const info = [
+    `lineas_corre as_techo,${b.purlinLines ?? ""},,${state.version}`,
+    `niveles_largueros_pared,${b.girtLevels ?? ""},,${state.version}`,
+  ];
+
+  const lines = rows.map((r) => `${r.type},${r.qty},${Math.round(r.weightKg)},${state.version}`);
+  downloadText(`rmm_bom_v${state.version}.csv`, header + [...info, ...lines].join("\n"), "text/csv");
 }
 
 // -------------------- REGLAS (VALIDACIONES) --------------------
@@ -510,14 +558,12 @@ function rule(id, name, ok, msg) {
 }
 
 function getTypicalRanges(cover) {
-  // Rangos típicos “de anteproyecto” (no son un mandamiento CIRSOC: se verifican por cálculo + ficha)
   if (cover === "panel") {
     return {
       purlin: { min: 1.2, max: 2.5 },
       girt: { min: 1.2, max: 2.2 },
     };
   }
-  // chapa trapezoidal (por defecto)
   return {
     purlin: { min: 0.8, max: 1.5 },
     girt: { min: 1.0, max: 2.0 },
@@ -582,6 +628,21 @@ function runRules() {
 }
 
 // -------------------- PREVIEW 3D (Three.js) --------------------
+async function importThreeSafe() {
+  // ✅ 1) intenta por importmap: import("three")
+  try {
+    const THREE = await import("three");
+    // OrbitControls en r158 por addons:
+    const oc = await import("three/addons/controls/OrbitControls.js");
+    return { THREE, OrbitControls: oc.OrbitControls };
+  } catch (_) {
+    // ✅ 2) fallback por URL (por si el importmap no cargó por alguna razón)
+    const THREE = await import("https://unpkg.com/three@0.158.0/build/three.module.js");
+    const oc = await import("https://unpkg.com/three@0.158.0/examples/jsm/controls/OrbitControls.js");
+    return { THREE, OrbitControls: oc.OrbitControls };
+  }
+}
+
 async function ensurePreview3D() {
   if (state.preview.ready) return true;
 
@@ -589,11 +650,10 @@ async function ensurePreview3D() {
   if (!container) return false;
 
   try {
-    const THREE = await import("https://unpkg.com/three@0.158.0/build/three.module.js");
-    const oc = await import("https://unpkg.com/three@0.158.0/examples/jsm/controls/OrbitControls.js");
+    const { THREE, OrbitControls } = await importThreeSafe();
 
     state.preview.THREE = THREE;
-    state.preview.OrbitControls = oc.OrbitControls;
+    state.preview.OrbitControls = OrbitControls;
 
     const {
       WebGLRenderer,
@@ -621,7 +681,7 @@ async function ensurePreview3D() {
     const camera = new PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 2000);
     camera.position.set(35, 18, 60);
 
-    const controls = new state.preview.OrbitControls(camera, renderer.domElement);
+    const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.06;
     controls.target.set(0, 6, 20);
@@ -645,8 +705,12 @@ async function ensurePreview3D() {
     state.preview.camera = camera;
     state.preview.controls = controls;
 
+    if (state.preview.resizeObserver) {
+      try { state.preview.resizeObserver.disconnect(); } catch {}
+    }
+
     const ro = new ResizeObserver(() => {
-      if (!state.preview.renderer) return;
+      if (!state.preview.renderer || !state.preview.camera) return;
       const w = container.clientWidth;
       const h = container.clientHeight;
       state.preview.renderer.setSize(w, h);
@@ -654,6 +718,7 @@ async function ensurePreview3D() {
       state.preview.camera.updateProjectionMatrix();
     });
     ro.observe(container);
+    state.preview.resizeObserver = ro;
 
     const tick = () => {
       state.preview.animId = requestAnimationFrame(tick);
@@ -663,6 +728,7 @@ async function ensurePreview3D() {
     tick();
 
     state.preview.ready = true;
+
     const vs = qs("#viewer-status");
     if (vs) vs.textContent = "Preview activo";
     const st = qs("#ifc-status");
@@ -692,6 +758,9 @@ function resetViewer() {
   if (!container) return;
 
   if (state.preview.animId) cancelAnimationFrame(state.preview.animId);
+  if (state.preview.resizeObserver) {
+    try { state.preview.resizeObserver.disconnect(); } catch {}
+  }
 
   state.preview.ready = false;
   state.preview.THREE = null;
@@ -701,6 +770,7 @@ function resetViewer() {
   state.preview.camera = null;
   state.preview.controls = null;
   state.preview.animId = null;
+  state.preview.resizeObserver = null;
 
   container.innerHTML = "";
   const vs = qs("#viewer-status");
@@ -740,7 +810,7 @@ function fitToGroup(THREE, camera, controls, group) {
   controls.update();
 }
 
-// Preview paramétrico: pórticos + correas techo (por vano) + largueros (por vano)
+// Preview paramétrico
 async function renderParametricPreview() {
   if (!state.model) return;
 
@@ -783,7 +853,7 @@ async function renderParametricPreview() {
     return height + (1 - t) * (halfSpan * slope);
   }
 
-  // -------------------- PÓRTICOS --------------------
+  // PÓRTICOS
   for (let i = 0; i < frames; i++) {
     const z = i * step;
 
@@ -816,7 +886,7 @@ async function renderParametricPreview() {
     }
   }
 
-  // -------------------- CORREAS DE TECHO (segmentadas POR VANO) --------------------
+  // CORREAS DE TECHO (segmentadas por vano)
   const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
 
   for (let bay = 0; bay < frames - 1; bay++) {
@@ -826,19 +896,14 @@ async function renderParametricPreview() {
     if (roof === "dos_aguas") {
       const halfLines = Math.max(1, Math.floor(linesAcross / 2));
 
-      // lado izq: -halfSpan..0
       for (let k = 0; k <= halfLines; k++) {
         const x = -halfSpan + (k / halfLines) * halfSpan;
         addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), purlinSize, matPurlin);
       }
-
-      // lado der: 0..halfSpan (evita duplicar x=0)
       for (let k = 1; k <= halfLines; k++) {
         const x = (k / halfLines) * halfSpan;
         addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), purlinSize, matPurlin);
       }
-
-      // cumbrera
       addMember(THREE, group, new THREE.Vector3(0, roofY(0), z0), new THREE.Vector3(0, roofY(0), z1), purlinSize, matPurlin);
     } else {
       for (let k = 0; k <= linesAcross; k++) {
@@ -848,9 +913,9 @@ async function renderParametricPreview() {
     }
   }
 
-  // -------------------- LARGUEROS EN COLUMNAS (segmentados POR VANO) --------------------
+  // LARGUEROS EN COLUMNAS (segmentados por vano)
   function colTopYLeft() {
-    return height; // en una_agua, izq es alero bajo
+    return height;
   }
   function colTopYRight() {
     return roof === "una_agua" ? height + span * slope : height;
@@ -864,8 +929,8 @@ async function renderParametricPreview() {
     const topR = colTopYRight();
 
     const startY = 1.2;
-    const maxYL = Math.max(startY, topL - 0.30);
-    const maxYR = Math.max(startY, topR - 0.30);
+    const maxYL = Math.max(startY, topL - 0.3);
+    const maxYR = Math.max(startY, topR - 0.3);
 
     const levelsL = Math.max(2, Math.floor((maxYL - startY) / Math.max(0.1, girtSpacing)) + 1);
     const levelsR = Math.max(2, Math.floor((maxYR - startY) / Math.max(0.1, girtSpacing)) + 1);
@@ -882,7 +947,6 @@ async function renderParametricPreview() {
   }
 
   scene.add(group);
-
   fitToGroup(THREE, state.preview.camera, state.preview.controls, group);
 
   const vs = qs("#viewer-status");
@@ -927,7 +991,6 @@ function loadLocalVersion() {
   state.model = latest.model;
   state.version = latest.version || state.version;
 
-  // volcar parámetros al UI si existen
   const b = state.model?.building;
   if (b) {
     if (qs("#ind-slope")) qs("#ind-slope").value = String(Math.round((b.slope ?? 0.1) * 100));
