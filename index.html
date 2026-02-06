@@ -1,128 +1,364 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <title>RMM STRUCTURES | Plataforma Industrial</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RMM STRUCTURES | Plataforma BIM Industrial</title>
 
-  <!-- ===== IMPORT MAP (CLAVE PARA GITHUB PAGES) ===== -->
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
-      "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/"
-    }
-  }
-  </script>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
 
-  <!-- ESTILOS -->
-  <link rel="stylesheet" href="styles.css" />
-</head>
+    <!-- ✅ IMPORT MAP (SOLUCIONA "three" EN GITHUB PAGES) -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/"
+        }
+      }
+    </script>
 
-<body>
+    <!-- Supabase (opcional) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-<section class="section">
-  <h2>Vista industrial (estilo software de naves)</h2>
-  <p>Panel de parámetros → visor central 3D → tablas y validaciones.</p>
+    <!-- Script principal -->
+    <script type="module" src="script.js"></script>
+  </head>
 
-  <div class="industrial-shell">
+  <body>
+    <!-- HERO -->
+    <header class="hero" id="home">
+      <nav class="top-nav">
+        <div class="logo">RMM STRUCTURES</div>
 
-    <!-- PANEL IZQUIERDO -->
-    <div class="industrial-panel">
-      <h3>Parámetros</h3>
+        <div class="nav-links">
+          <a href="#plataforma" data-tooltip="Ir a descripción general de la plataforma">Plataforma</a>
+          <a href="#industrial" data-tooltip="Ir a la vista industrial tipo software de naves">Industrial</a>
+          <a href="#wizard" data-tooltip="Ir al asistente para crear una nave">Asistente</a>
+          <a href="#editor" data-tooltip="Ir al editor BIM 3D">Editor BIM</a>
+          <a href="#backend" data-tooltip="Ir a persistencia (local y Supabase)">Backend</a>
 
-      <label>
-        Tipo de cubierta
-        <select id="ind-roof">
-          <option value="plana">Plana</option>
-          <option value="una_agua">Una agua</option>
-          <option value="dos_aguas" selected>Dos aguas</option>
-        </select>
-      </label>
-
-      <label>
-        Pendiente cubierta (%)
-        <input type="range" id="ind-slope" min="2" max="25" value="10">
-        <span id="ind-slope-value">10</span> %
-      </label>
-
-      <label>
-        Luz de la nave (m)
-        <input type="range" id="ind-span" min="10" max="60" value="24">
-        <span id="ind-span-value">24</span>
-      </label>
-
-      <label>
-        Longitud (m)
-        <input type="range" id="ind-length" min="20" max="200" value="60">
-        <span id="ind-length-value">60</span>
-      </label>
-
-      <label>
-        Altura libre (m)
-        <input type="range" id="ind-height" min="4" max="16" value="8">
-        <span id="ind-height-value">8</span>
-      </label>
-
-      <label>
-        Cantidad de pórticos
-        <input type="range" id="ind-frames" min="4" max="24" value="10">
-        <span id="ind-frames-value">10</span>
-      </label>
-
-      <button class="primary" data-action="generate-model">
-        Generar modelo
-      </button>
-    </div>
-
-    <!-- VISOR 3D -->
-    <div class="industrial-view">
-      <div class="viewer-topbar">
-        <strong>Visor 3D (Preview)</strong>
-        <span id="viewer-status">Sin archivo</span>
-      </div>
-
-      <div id="ifc-viewer" class="ifc-viewer"></div>
-
-      <div class="viewer-footer">
-        <div class="viewer-kpis">
-          <div><strong id="kpi-elements">0</strong><span>Elementos</span></div>
-          <div><strong id="kpi-weight">0</strong><span>Kg estimados</span></div>
-          <div><strong id="kpi-version">-</strong><span>Versión</span></div>
+          <button class="primary"
+            data-action="open-demo"
+            data-tooltip="Abrir modal para elegir rol y comenzar">
+            Crear mi nave
+          </button>
         </div>
-        <button class="ghost" data-action="run-rules">Validar modelo</button>
+      </nav>
+
+      <div class="hero-content">
+        <div>
+          <p class="eyebrow">BIM + Ingeniería estructural + Fabricación inteligente</p>
+          <h1>Diseñá, calculá y fabricá estructuras metálicas desde la web.</h1>
+          <p class="lead">
+            RMM STRUCTURES integra un flujo BIM paramétrico con versiones, exportaciones y un
+            visor 3D industrial basado en IFC (estándar abierto).
+          </p>
+
+          <div class="cta-row">
+            <button class="primary"
+              data-action="scroll"
+              data-target="#industrial"
+              data-tooltip="Bajar a la vista industrial con visor 3D + paneles">
+              Ver plataforma industrial
+            </button>
+
+            <button class="ghost"
+              data-action="scroll"
+              data-target="#wizard"
+              data-tooltip="Bajar al asistente paso a paso para generar una nave">
+              Abrir asistente
+            </button>
+          </div>
+
+          <div class="hero-metrics">
+            <div>
+              <strong>IFC</strong>
+              <span>Estándar BIM abierto</span>
+            </div>
+            <div>
+              <strong>BOM</strong>
+              <span>Listados exportables</span>
+            </div>
+            <div>
+              <strong>RLS</strong>
+              <span>Seguridad por roles</span>
+            </div>
+            <div>
+              <strong>Versionado</strong>
+              <span>Historial de cambios</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hero-panel">
+          <div class="panel-header">
+            <span class="panel-title">Panel rápido</span>
+            <span class="status" id="app-status">MVP avanzado</span>
+          </div>
+
+          <ul class="quick-list">
+            <li>Asistente de nave</li>
+            <li>Visor IFC (BIM real)</li>
+            <li>Reglas/validaciones</li>
+            <li>Versionado local + Supabase</li>
+          </ul>
+
+          <div class="button-row">
+            <button class="ghost"
+              data-action="run-rules"
+              data-tooltip="Ejecutar validaciones sobre el modelo actual">
+              Ejecutar validaciones
+            </button>
+            <button class="ghost"
+              data-action="export-bom"
+              data-tooltip="Descargar listado de materiales (BOM) en CSV">
+              Descargar BOM
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <!-- PLATAFORMA -->
+      <section id="plataforma" class="section alt">
+        <div class="section-title">
+          <h2>Plataforma diseñada para flujo industrial</h2>
+          <p>
+            Objetivo: pasar de parámetros → modelo BIM (IFC) → listados (BOM) → exportaciones.
+          </p>
+        </div>
+
+        <div class="grid-two">
+          <article class="card">
+            <h3>Login por rol (demo)</h3>
+
+            <form id="auth-form" class="auth-form">
+              <label>
+                Email
+                <input type="email" id="auth-email" placeholder="usuario@empresa.com" required />
+              </label>
+
+              <label>
+                Rol
+                <select id="auth-role">
+                  <option value="Cliente">Cliente</option>
+                  <option value="Ingeniero">Ingeniero</option>
+                  <option value="Fabricador">Fabricador</option>
+                  <option value="Admin">Admin</option>
+                </select>
+              </label>
+
+              <div class="button-row">
+                <button class="primary" type="submit" data-tooltip="Simular inicio de sesión con rol">
+                  Iniciar sesión
+                </button>
+                <button class="ghost" type="button" data-action="logout" data-tooltip="Cerrar sesión y limpiar permisos">
+                  Cerrar sesión
+                </button>
+              </div>
+
+              <div class="button-row">
+                <button class="ghost" type="button" data-action="magic-link" data-tooltip="Enviar magic link si configurás Supabase Auth">
+                  Enviar magic link (Supabase)
+                </button>
+              </div>
+            </form>
+
+            <p class="helper" id="auth-status">Sin sesión activa.</p>
+            <p class="helper" id="auth-supabase-status">Supabase Auth sin configurar.</p>
+          </article>
+
+          <article class="card">
+            <h3>Permisos activos</h3>
+            <ul id="auth-permissions" class="permissions-list"></ul>
+          </article>
+        </div>
+      </section>
+
+      <!-- INDUSTRIAL -->
+      <section id="industrial" class="section">
+        <div class="section-title">
+          <h2>Vista industrial (estilo software de naves)</h2>
+          <p>Panel de parámetros → visor central 3D → tablas y validaciones.</p>
+        </div>
+
+        <div class="industrial-shell">
+          <!-- PANEL IZQUIERDO -->
+          <aside class="industrial-panel">
+            <div class="panel-block">
+              <h3>Parámetros</h3>
+
+              <label>
+                Tipo de cubierta
+                <select id="ind-roof">
+                  <option value="dos_aguas">Dos aguas</option>
+                  <option value="una_agua">Una agua</option>
+                  <option value="plana">Plana</option>
+                </select>
+              </label>
+
+              <!-- ✅ NUEVO: Pendiente -->
+              <label>
+                Pendiente cubierta (%)
+                <input id="ind-slope" type="range" min="2" max="25" value="10" />
+                <small><span id="ind-slope-value">10</span> %</small>
+              </label>
+
+              <label>
+                Luz de la nave (m)
+                <input id="ind-span" type="range" min="10" max="60" value="24" />
+                <small><span id="ind-span-value">24</span> m</small>
+              </label>
+
+              <label>
+                Longitud (m)
+                <input id="ind-length" type="range" min="20" max="200" value="60" />
+                <small><span id="ind-length-value">60</span> m</small>
+              </label>
+
+              <label>
+                Altura libre (m)
+                <input id="ind-height" type="range" min="4" max="16" value="8" />
+                <small><span id="ind-height-value">8</span> m</small>
+              </label>
+
+              <label>
+                Cantidad de pórticos
+                <input id="ind-frames" type="range" min="4" max="24" value="10" />
+                <small><span id="ind-frames-value">10</span></small>
+              </label>
+            </div>
+
+            <div class="panel-block">
+              <h3>Acciones</h3>
+
+              <div class="button-col">
+                <button class="primary"
+                  data-action="generate-model"
+                  data-tooltip="Generar el modelo paramétrico y actualizar tablas/visor">
+                  Generar modelo
+                </button>
+
+                <label class="file-label" data-tooltip="Cargar un archivo IFC para verlo en el visor">
+                  Cargar IFC
+                  <input id="ifc-file" type="file" accept=".ifc" />
+                </label>
+
+                <button class="ghost"
+                  data-action="reset-viewer"
+                  data-tooltip="Reiniciar el visor 3D a estado inicial">
+                  Reiniciar visor
+                </button>
+
+                <button class="ghost"
+                  data-action="export-bom"
+                  data-tooltip="Descargar listado de materiales (BOM) en CSV">
+                  Exportar BOM (CSV)
+                </button>
+
+                <button class="ghost"
+                  data-action="export-json"
+                  data-tooltip="Descargar el modelo (JSON) para versionado o backend">
+                  Exportar JSON
+                </button>
+              </div>
+
+              <p class="helper" id="ifc-status">Visor listo. Podés generar un modelo.</p>
+            </div>
+          </aside>
+
+          <!-- VISOR CENTRAL -->
+          <section class="industrial-view">
+            <div class="viewer-topbar">
+              <span class="viewer-title">Visor 3D (Preview)</span>
+              <span class="status" id="viewer-status">Sin archivo</span>
+            </div>
+
+            <div id="ifc-viewer" class="ifc-viewer" aria-label="Visor 3D"></div>
+
+            <div class="viewer-footer">
+              <div class="viewer-kpis">
+                <div>
+                  <strong id="kpi-elements">0</strong>
+                  <span>Elementos</span>
+                </div>
+                <div>
+                  <strong id="kpi-weight">0</strong>
+                  <span>Kg estimados</span>
+                </div>
+                <div>
+                  <strong id="kpi-version">-</strong>
+                  <span>Versión</span>
+                </div>
+              </div>
+
+              <button class="ghost"
+                data-action="run-rules"
+                data-tooltip="Ejecutar reglas de validación sobre el modelo actual">
+                Validar modelo
+              </button>
+            </div>
+          </section>
+
+          <!-- PANEL DERECHO -->
+          <aside class="industrial-panel right">
+            <div class="panel-block">
+              <h3>Tabla (BOM)</h3>
+              <div class="table-scroll">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Elemento</th>
+                      <th>Cantidad</th>
+                      <th>Peso (kg)</th>
+                      <th>Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody id="materials-table">
+                    <tr>
+                      <td colspan="4">Generá un modelo o cargá un IFC.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="panel-block">
+              <h3>Validaciones</h3>
+              <div class="summary-box" id="rules-summary">Listo para validar.</div>
+              <div class="rules-list" id="rules-list"></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- WIZARD / EDITOR / BACKEND: (los dejás igual si ya los tenías) -->
+      <!-- Para no tocarte más el layout, tu CSS y el resto sigue funcionando -->
+    </main>
+
+    <!-- MODAL -->
+    <div class="modal" id="demo-modal" aria-hidden="true">
+      <div class="modal-content">
+        <button class="modal-close" data-close data-tooltip="Cerrar el modal">×</button>
+        <h2>Crear mi nave</h2>
+        <p>Elegí un rol para iniciar el flujo.</p>
+
+        <div class="role-grid">
+          <button class="ghost" data-action="select-role" data-role="Cliente">Cliente</button>
+          <button class="ghost" data-action="select-role" data-role="Ingeniero">Ingeniero</button>
+          <button class="ghost" data-action="select-role" data-role="Fabricador">Fabricador</button>
+          <button class="ghost" data-action="select-role" data-role="Admin">Admin</button>
+        </div>
+
+        <p class="helper" id="role-status">Seleccioná un rol para continuar.</p>
       </div>
     </div>
-
-    <!-- PANEL DERECHO -->
-    <div class="industrial-panel right">
-      <h3>Tabla (BOM)</h3>
-      <div class="table-scroll">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Elemento</th>
-              <th>Cantidad</th>
-              <th>Peso (kg)</th>
-              <th>Estado</th>
-            </tr>
-          </thead>
-          <tbody id="materials-table">
-            <tr><td colspan="4">Generá un modelo.</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <h3>Validaciones</h3>
-      <div id="rules-summary" class="summary-box">Sin validar</div>
-      <div id="rules-list" class="rules-list"></div>
-    </div>
-
-  </div>
-</section>
-
-<!-- SCRIPT PRINCIPAL -->
-<script type="module" src="script.js"></script>
-
-</body>
+  </body>
 </html>
