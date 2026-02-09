@@ -1,4 +1,5 @@
-// script.js (ES Module) — GitHub Pages friendly (usa importmap para "three")
+// script.js (ES Module) — GitHub Pages friendly (imports por URL completa)
+// BOM “ultra técnico” + correas/largueros segmentados + líneas/niveles + robustez anti-null
 
 const qs = (sel, parent = document) => parent.querySelector(sel);
 const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
@@ -20,7 +21,6 @@ const state = {
     controls: null,
     animId: null,
     groupName: "RMM_PREVIEW",
-    resizeObserver: null,
   },
 };
 
@@ -145,13 +145,16 @@ function bindAuth() {
 
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    const email = qs("#auth-email")?.value?.trim() || "";
-    const role = qs("#auth-role")?.value || "Cliente";
+    const emailEl = qs("#auth-email");
+    const roleEl = qs("#auth-role");
+    const email = emailEl ? emailEl.value.trim() : "";
+    const role = roleEl ? roleEl.value : "Cliente";
+
     state.session = { email, role, at: nowISO() };
     state.role = role;
 
     const s = qs("#auth-status");
-    if (s) s.textContent = `Sesión demo activa: ${email} (${role})`;
+    if (s) s.textContent = `Sesión demo activa: ${email || "(sin email)"} (${role})`;
     renderPermissions(role);
   });
 
@@ -182,6 +185,10 @@ function bindAuth() {
     try {
       const client = window.supabase.createClient(url, key);
       const email = qs("#auth-email")?.value?.trim() || "";
+      if (!email) {
+        if (status) status.textContent = "Ingresá un email para enviar el magic link.";
+        return;
+      }
       const { error } = await client.auth.signInWithOtp({ email });
       if (status) status.textContent = error ? `Error: ${error.message}` : "Magic link enviado (revisá tu email).";
     } catch (err) {
@@ -280,8 +287,10 @@ function updateIndustrialLabels() {
   setTxt("#ind-frames-value", qs("#ind-frames")?.value ?? "");
 
   if (qs("#ind-slope") && qs("#ind-slope-value")) setTxt("#ind-slope-value", qs("#ind-slope").value);
-  if (qs("#ind-purlin") && qs("#ind-purlin-value")) setTxt("#ind-purlin-value", Number(qs("#ind-purlin").value).toFixed(2));
-  if (qs("#ind-girt") && qs("#ind-girt-value")) setTxt("#ind-girt-value", Number(qs("#ind-girt").value).toFixed(2));
+  if (qs("#ind-purlin") && qs("#ind-purlin-value"))
+    setTxt("#ind-purlin-value", Number(qs("#ind-purlin").value).toFixed(2));
+  if (qs("#ind-girt") && qs("#ind-girt-value"))
+    setTxt("#ind-girt-value", Number(qs("#ind-girt").value).toFixed(2));
 }
 
 function bindIndustrialControls() {
@@ -336,7 +345,7 @@ function bindIndustrialControls() {
   }
 }
 
-// -------------------- MODELO PARAMÉTRICO (JSON) --------------------
+// -------------------- MODELO PARAMÉTRICO (JSON) + BOM ULTRA --------------------
 function generateModelFromIndustrial() {
   const span = Number(qs("#ind-span")?.value || 24);
   const length = Number(qs("#ind-length")?.value || 60);
@@ -354,12 +363,39 @@ function generateModelFromIndustrial() {
   const bays = Math.max(1, frames - 1);
   const step = frames > 1 ? length / (frames - 1) : length;
 
-  // ✅ métricas ingenieriles
-  const purlinLines = Math.max(2, Math.floor(span / purlinSpacing) + 1);
+  const halfSpan = span / 2;
+  const rise_two_slope = halfSpan * slope; // dos aguas: subida a cumbrera desde alero
+  const rise_one_slope = span * slope; // una agua: diferencia entre aleros
 
-  // largueros por altura (niveles)
-  const usable = Math.max(0, height - 1.5);
-  const girtLevels = Math.max(2, Math.floor(usable / girtSpacing) + 1); // min 2
+  // Longitudes típicas (aprox) para BOM
+  const rafterLen_two = Math.hypot(halfSpan, rise_two_slope); // cabio por faldón
+  const rafterLen_one = Math.hypot(span, rise_one_slope); // cabio único
+
+  // Alturas de alero
+  const eaveLow = height;
+  const eaveHigh = roof === "una_agua" ? height + rise_one_slope : height;
+
+  // Líneas de correas
+  let purlinLinesTotal = Math.max(2, Math.floor(span / purlinSpacing) + 1);
+
+  let purlinLinesLeft = 0;
+  let purlinLinesRight = 0;
+
+  if (roof === "dos_aguas") {
+    const perSlope = Math.max(2, Math.floor(halfSpan / purlinSpacing) + 1);
+    purlinLinesLeft = perSlope;
+    purlinLinesRight = perSlope;
+    // total “ingenieril” (cumbrera se cuenta una sola vez)
+    purlinLinesTotal = perSlope * 2 - 1;
+  }
+
+  // Niveles de largueros (por lado)
+  const startY = 1.2; // arranque típico del primer larguero
+  const topYL = Math.max(startY, eaveLow - 0.3);
+  const topYR = Math.max(startY, eaveHigh - 0.3);
+
+  const girtLevelsLeft = Math.max(2, Math.floor((topYL - startY) / girtSpacing) + 1);
+  const girtLevelsRight = Math.max(2, Math.floor((topYR - startY) / girtSpacing) + 1);
 
   state.version += 1;
 
@@ -373,52 +409,165 @@ function generateModelFromIndustrial() {
       length,
       height,
       frames,
+      bays,
+      step,
       slope,
       purlinSpacing,
       girtSpacing,
-      // ✅ agregado
-      bays,
-      step,
-      purlinLines,
-      girtLevels,
+
+      // DERIVADOS “BOM ULTRA”
+      eaveLow,
+      eaveHigh,
+      rise_two_slope,
+      rise_one_slope,
+      rafterLen_two,
+      rafterLen_one,
+      purlinLinesTotal,
+      purlinLinesLeft,
+      purlinLinesRight,
+      girtLevelsLeft,
+      girtLevelsRight,
     },
     elements: [],
   };
 
-  // columnas y cabios/vigas por pórtico (BOM simplificado)
+  // -------------------- ELEMENTOS PRINCIPALES --------------------
   for (let i = 0; i < frames; i++) {
-    model.elements.push({ id: `COL-L-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
-    model.elements.push({ id: `COL-R-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
+    model.elements.push({
+      id: `COL-L-${i + 1}`,
+      type: "columna_izq",
+      qty: 1,
+      length: eaveLow,
+      weightKg: eaveLow * 90,
+    });
+
+    model.elements.push({
+      id: `COL-R-${i + 1}`,
+      type: "columna_der",
+      qty: 1,
+      length: eaveHigh,
+      weightKg: eaveHigh * 90,
+    });
 
     if (roof === "dos_aguas") {
-      const rafterLen = Math.hypot(span / 2, (span / 2) * slope);
-      model.elements.push({ id: `RAF-L-${i + 1}`, type: "cabio", qty: 1, length: rafterLen, weightKg: rafterLen * 40 });
-      model.elements.push({ id: `RAF-R-${i + 1}`, type: "cabio", qty: 1, length: rafterLen, weightKg: rafterLen * 40 });
+      model.elements.push({
+        id: `RAF-L-${i + 1}`,
+        type: "cabio_faldon_izq",
+        qty: 1,
+        length: rafterLen_two,
+        weightKg: rafterLen_two * 40,
+      });
+      model.elements.push({
+        id: `RAF-R-${i + 1}`,
+        type: "cabio_faldon_der",
+        qty: 1,
+        length: rafterLen_two,
+        weightKg: rafterLen_two * 40,
+      });
     } else {
-      const beamLen = Math.hypot(span, span * slope * (roof === "una_agua" ? 1 : 0));
-      model.elements.push({ id: `BEAM-${i + 1}`, type: roof === "plana" ? "viga" : "cabio", qty: 1, length: beamLen, weightKg: beamLen * 55 });
+      const beamLen = roof === "plana" ? span : rafterLen_one;
+      model.elements.push({
+        id: `BEAM-${i + 1}`,
+        type: roof === "plana" ? "viga_superior" : "cabio_principal",
+        qty: 1,
+        length: beamLen,
+        weightKg: beamLen * 55,
+      });
     }
   }
 
-  // correas segmentadas por vano
-  const purlinMembers = purlinLines * bays;
+  // -------------------- CORREAS TECHO (MIEMBROS SEGMENTADOS POR VANO) --------------------
+  if (roof === "dos_aguas") {
+    const membersLeft = purlinLinesLeft * bays;
+    const membersRight = purlinLinesRight * bays;
+
+    model.elements.push({
+      id: `PURLINS-L`,
+      type: "correa_techo_faldon_izq",
+      qty: membersLeft,
+      length: step,
+      weightKg: membersLeft * step * 8,
+    });
+
+    model.elements.push({
+      id: `PURLINS-R`,
+      type: "correa_techo_faldon_der",
+      qty: membersRight,
+      length: step,
+      weightKg: membersRight * step * 8,
+    });
+
+    // correa cumbrera segmentada (1 línea)
+    model.elements.push({
+      id: `PURLIN-RIDGE`,
+      type: "correa_cumbrera",
+      qty: bays,
+      length: step,
+      weightKg: bays * step * 8,
+    });
+
+    // aleros: 2 líneas (izq+der)
+    model.elements.push({
+      id: `PURLIN-EAVES`,
+      type: "correa_alero",
+      qty: 2 * bays,
+      length: step,
+      weightKg: 2 * bays * step * 8,
+    });
+  } else {
+    const members = purlinLinesTotal * bays;
+    model.elements.push({
+      id: `PURLINS`,
+      type: "correa_techo",
+      qty: members,
+      length: step,
+      weightKg: members * step * 8,
+    });
+
+    // aleros: 2 líneas
+    model.elements.push({
+      id: `PURLIN-EAVES`,
+      type: "correa_alero",
+      qty: 2 * bays,
+      length: step,
+      weightKg: 2 * bays * step * 8,
+    });
+  }
+
+  // -------------------- LARGUEROS PARED (MIEMBROS SEGMENTADOS POR VANO) --------------------
+  const girtMembersLeft = girtLevelsLeft * bays;
+  const girtMembersRight = girtLevelsRight * bays;
+
   model.elements.push({
-    id: `PURLINS`,
-    type: "correas",
-    qty: purlinMembers,
+    id: `GIRTS-L`,
+    type: "larguero_pared_izq",
+    qty: girtMembersLeft,
     length: step,
-    weightKg: purlinMembers * step * 8,
+    weightKg: girtMembersLeft * step * 6,
   });
 
-  // largueros segmentados por vano (2 lados)
-  const girtMembers = girtLevels * 2 * bays;
   model.elements.push({
-    id: `GIRTS`,
-    type: "correas_columna",
-    qty: girtMembers,
+    id: `GIRTS-R`,
+    type: "larguero_pared_der",
+    qty: girtMembersRight,
     length: step,
-    weightKg: girtMembers * step * 6,
+    weightKg: girtMembersRight * step * 6,
   });
+
+  // -------------------- “BOM ULTRA”: LÍNEAS / NIVELES COMO ÍTEMS DE INGENIERÍA --------------------
+  // (metadatos: peso 0)
+  model.elements.push({ id: `META_BAYS`, type: "bays_vanos", qty: bays, length: 0, weightKg: 0 });
+  model.elements.push({ id: `META_STEP`, type: "paso_porticos_m", qty: 1, length: step, weightKg: 0 });
+
+  model.elements.push({ id: `META_PURLIN_LINES`, type: "lineas_correas_techo", qty: purlinLinesTotal, length: 0, weightKg: 0 });
+  if (roof === "dos_aguas") {
+    model.elements.push({ id: `META_PURLIN_LINES_L`, type: "lineas_correas_faldon_izq", qty: purlinLinesLeft, length: 0, weightKg: 0 });
+    model.elements.push({ id: `META_PURLIN_LINES_R`, type: "lineas_correas_faldon_der", qty: purlinLinesRight, length: 0, weightKg: 0 });
+  }
+
+  model.elements.push({ id: `META_GIRT_LEVELS`, type: "niveles_largueros_pared", qty: Math.max(girtLevelsLeft, girtLevelsRight), length: 0, weightKg: 0 });
+  model.elements.push({ id: `META_GIRT_LEVELS_L`, type: "niveles_largueros_izq", qty: girtLevelsLeft, length: 0, weightKg: 0 });
+  model.elements.push({ id: `META_GIRT_LEVELS_R`, type: "niveles_largueros_der", qty: girtLevelsRight, length: 0, weightKg: 0 });
 
   state.model = model;
 
@@ -453,7 +602,7 @@ function refreshKPIs() {
   if (kw) kw.textContent = fmt(Math.round(weight));
 }
 
-// -------------------- BOM TABLE --------------------
+// -------------------- BOM TABLE (ULTRA TÉCNICO) --------------------
 function renderBOMFromModel() {
   const tbody = qs("#materials-table");
   if (!tbody) return;
@@ -463,52 +612,77 @@ function renderBOMFromModel() {
     return;
   }
 
-  const b = state.model.building || {};
-
   const map = new Map();
   for (const e of state.model.elements) {
     const k = e.type;
-    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0 };
+    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0, length: null };
     cur.qty += Number(e.qty) || 0;
     cur.weightKg += Number(e.weightKg) || 0;
+    if (cur.length == null && e.length != null && Number(e.length) > 0) cur.length = Number(e.length);
     map.set(k, cur);
   }
 
-  const rows = [...map.values()].sort((a, b2) => a.type.localeCompare(b2.type));
+  const order = [
+    "bays_vanos",
+    "paso_porticos_m",
+    "lineas_correas_techo",
+    "lineas_correas_faldon_izq",
+    "lineas_correas_faldon_der",
+    "niveles_largueros_pared",
+    "niveles_largueros_izq",
+    "niveles_largueros_der",
 
-  // ✅ filas “ingenieriles” (no son miembros, son cantidades de líneas/niveles)
-  const infoRows = [
-    { label: "líneas_corre as_techo", qty: b.purlinLines ?? "-", weight: "", status: "INFO" },
-    { label: "niveles_largueros_pared", qty: b.girtLevels ?? "-", weight: "", status: "INFO" },
+    "columna_izq",
+    "columna_der",
+    "viga_superior",
+    "cabio_principal",
+    "cabio_faldon_izq",
+    "cabio_faldon_der",
+
+    "correa_cumbrera",
+    "correa_alero",
+    "correa_techo",
+    "correa_techo_faldon_izq",
+    "correa_techo_faldon_der",
+
+    "larguero_pared_izq",
+    "larguero_pared_der",
   ];
 
-  const infoHtml = infoRows
-    .map(
-      (r) => `
-      <tr>
-        <td>${r.label}</td>
-        <td>${r.qty}</td>
-        <td>${r.weight}</td>
-        <td>${r.status}</td>
-      </tr>
-    `
-    )
-    .join("");
+  const rows = [...map.values()].sort((a, b) => {
+    const ia = order.indexOf(a.type);
+    const ib = order.indexOf(b.type);
+    if (ia === -1 && ib === -1) return a.type.localeCompare(b.type);
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
 
-  const bomHtml = rows
-    .map(
-      (r) => `
-      <tr>
-        <td>${r.type}</td>
-        <td>${fmt(r.qty)}</td>
-        <td>${fmt(Math.round(r.weightKg))}</td>
-        <td>OK</td>
-      </tr>
-    `
-    )
-    .join("");
+  const label = (r) => {
+    const isMeta =
+      r.type.startsWith("lineas_") ||
+      r.type.startsWith("niveles_") ||
+      r.type.startsWith("bays_") ||
+      r.type.startsWith("paso_");
 
-  tbody.innerHTML = infoHtml + bomHtml;
+    if (r.type === "paso_porticos_m" && r.length != null) return `paso_porticos (≈${r.length.toFixed(2)} m)`;
+    if (!isMeta && r.length != null) return `${r.type} (L≈${r.length.toFixed(2)} m)`;
+    return r.type;
+  };
+
+  tbody.innerHTML = rows
+    .map((r) => {
+      const w = Math.round(r.weightKg);
+      return `
+        <tr>
+          <td>${label(r)}</td>
+          <td>${fmt(r.qty)}</td>
+          <td>${fmt(w)}</td>
+          <td>OK</td>
+        </tr>
+      `;
+    })
+    .join("");
 }
 
 // -------------------- EXPORTS --------------------
@@ -521,6 +695,7 @@ function exportJSON() {
   downloadText(`rmm_model_v${state.version}.json`, JSON.stringify(state.model, null, 2), "application/json");
 }
 
+// BOM CSV ULTRA: incluye longitud típica
 function exportBOM() {
   const st = qs("#ifc-status");
   if (!state.model) {
@@ -528,28 +703,23 @@ function exportBOM() {
     return;
   }
 
-  const b = state.model.building || {};
-
   const map = new Map();
   for (const e of state.model.elements) {
     const k = e.type;
-    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0 };
+    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0, lengthTypical: null };
     cur.qty += Number(e.qty) || 0;
     cur.weightKg += Number(e.weightKg) || 0;
+    if (cur.lengthTypical == null && e.length != null && Number(e.length) > 0) cur.lengthTypical = Number(e.length);
     map.set(k, cur);
   }
 
   const rows = [...map.values()];
-  const header = "Elemento,Cantidad,Peso_kg,Version\n";
+  const header = "Elemento,Cantidad,Longitud_tipica_m,Peso_kg,Version\n";
+  const lines = rows
+    .map((r) => `${r.type},${r.qty},${r.lengthTypical != null ? r.lengthTypical.toFixed(3) : ""},${Math.round(r.weightKg)},${state.version}`)
+    .join("\n");
 
-  // ✅ agrega info ingenieril en CSV
-  const info = [
-    `lineas_corre as_techo,${b.purlinLines ?? ""},,${state.version}`,
-    `niveles_largueros_pared,${b.girtLevels ?? ""},,${state.version}`,
-  ];
-
-  const lines = rows.map((r) => `${r.type},${r.qty},${Math.round(r.weightKg)},${state.version}`);
-  downloadText(`rmm_bom_v${state.version}.csv`, header + [...info, ...lines].join("\n"), "text/csv");
+  downloadText(`rmm_bom_v${state.version}.csv`, header + lines, "text/csv");
 }
 
 // -------------------- REGLAS (VALIDACIONES) --------------------
@@ -558,6 +728,7 @@ function rule(id, name, ok, msg) {
 }
 
 function getTypicalRanges(cover) {
+  // Rangos típicos “de anteproyecto” (verificar por cálculo + ficha)
   if (cover === "panel") {
     return {
       purlin: { min: 1.2, max: 2.5 },
@@ -628,21 +799,6 @@ function runRules() {
 }
 
 // -------------------- PREVIEW 3D (Three.js) --------------------
-async function importThreeSafe() {
-  // ✅ 1) intenta por importmap: import("three")
-  try {
-    const THREE = await import("three");
-    // OrbitControls en r158 por addons:
-    const oc = await import("three/addons/controls/OrbitControls.js");
-    return { THREE, OrbitControls: oc.OrbitControls };
-  } catch (_) {
-    // ✅ 2) fallback por URL (por si el importmap no cargó por alguna razón)
-    const THREE = await import("https://unpkg.com/three@0.158.0/build/three.module.js");
-    const oc = await import("https://unpkg.com/three@0.158.0/examples/jsm/controls/OrbitControls.js");
-    return { THREE, OrbitControls: oc.OrbitControls };
-  }
-}
-
 async function ensurePreview3D() {
   if (state.preview.ready) return true;
 
@@ -650,22 +806,14 @@ async function ensurePreview3D() {
   if (!container) return false;
 
   try {
-    const { THREE, OrbitControls } = await importThreeSafe();
+    // Import directo por URL completa (evita “Failed to resolve module specifier 'three'”)
+    const THREE = await import("https://unpkg.com/three@0.158.0/build/three.module.js");
+    const oc = await import("https://unpkg.com/three@0.158.0/examples/jsm/controls/OrbitControls.js");
 
     state.preview.THREE = THREE;
-    state.preview.OrbitControls = OrbitControls;
+    state.preview.OrbitControls = oc.OrbitControls;
 
-    const {
-      WebGLRenderer,
-      Scene,
-      PerspectiveCamera,
-      Color,
-      Fog,
-      AxesHelper,
-      GridHelper,
-      AmbientLight,
-      DirectionalLight,
-    } = THREE;
+    const { WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, AxesHelper, GridHelper, AmbientLight, DirectionalLight } = THREE;
 
     container.innerHTML = "";
 
@@ -681,7 +829,7 @@ async function ensurePreview3D() {
     const camera = new PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 2000);
     camera.position.set(35, 18, 60);
 
-    const controls = new OrbitControls(camera, renderer.domElement);
+    const controls = new state.preview.OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.06;
     controls.target.set(0, 6, 20);
@@ -705,12 +853,8 @@ async function ensurePreview3D() {
     state.preview.camera = camera;
     state.preview.controls = controls;
 
-    if (state.preview.resizeObserver) {
-      try { state.preview.resizeObserver.disconnect(); } catch {}
-    }
-
     const ro = new ResizeObserver(() => {
-      if (!state.preview.renderer || !state.preview.camera) return;
+      if (!state.preview.renderer) return;
       const w = container.clientWidth;
       const h = container.clientHeight;
       state.preview.renderer.setSize(w, h);
@@ -718,7 +862,6 @@ async function ensurePreview3D() {
       state.preview.camera.updateProjectionMatrix();
     });
     ro.observe(container);
-    state.preview.resizeObserver = ro;
 
     const tick = () => {
       state.preview.animId = requestAnimationFrame(tick);
@@ -728,7 +871,6 @@ async function ensurePreview3D() {
     tick();
 
     state.preview.ready = true;
-
     const vs = qs("#viewer-status");
     if (vs) vs.textContent = "Preview activo";
     const st = qs("#ifc-status");
@@ -758,9 +900,6 @@ function resetViewer() {
   if (!container) return;
 
   if (state.preview.animId) cancelAnimationFrame(state.preview.animId);
-  if (state.preview.resizeObserver) {
-    try { state.preview.resizeObserver.disconnect(); } catch {}
-  }
 
   state.preview.ready = false;
   state.preview.THREE = null;
@@ -770,7 +909,6 @@ function resetViewer() {
   state.preview.camera = null;
   state.preview.controls = null;
   state.preview.animId = null;
-  state.preview.resizeObserver = null;
 
   container.innerHTML = "";
   const vs = qs("#viewer-status");
@@ -810,7 +948,7 @@ function fitToGroup(THREE, camera, controls, group) {
   controls.update();
 }
 
-// Preview paramétrico
+// Preview paramétrico: pórticos + correas techo (por vano) + largueros (por vano)
 async function renderParametricPreview() {
   if (!state.model) return;
 
@@ -853,7 +991,7 @@ async function renderParametricPreview() {
     return height + (1 - t) * (halfSpan * slope);
   }
 
-  // PÓRTICOS
+  // -------------------- PÓRTICOS --------------------
   for (let i = 0; i < frames; i++) {
     const z = i * step;
 
@@ -886,7 +1024,7 @@ async function renderParametricPreview() {
     }
   }
 
-  // CORREAS DE TECHO (segmentadas por vano)
+  // -------------------- CORREAS DE TECHO (segmentadas POR VANO) --------------------
   const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
 
   for (let bay = 0; bay < frames - 1; bay++) {
@@ -900,10 +1038,12 @@ async function renderParametricPreview() {
         const x = -halfSpan + (k / halfLines) * halfSpan;
         addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), purlinSize, matPurlin);
       }
+
       for (let k = 1; k <= halfLines; k++) {
         const x = (k / halfLines) * halfSpan;
         addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), purlinSize, matPurlin);
       }
+
       addMember(THREE, group, new THREE.Vector3(0, roofY(0), z0), new THREE.Vector3(0, roofY(0), z1), purlinSize, matPurlin);
     } else {
       for (let k = 0; k <= linesAcross; k++) {
@@ -913,7 +1053,7 @@ async function renderParametricPreview() {
     }
   }
 
-  // LARGUEROS EN COLUMNAS (segmentados por vano)
+  // -------------------- LARGUEROS EN COLUMNAS (segmentados POR VANO) --------------------
   function colTopYLeft() {
     return height;
   }
@@ -947,6 +1087,7 @@ async function renderParametricPreview() {
   }
 
   scene.add(group);
+
   fitToGroup(THREE, state.preview.camera, state.preview.controls, group);
 
   const vs = qs("#viewer-status");
@@ -1107,11 +1248,7 @@ async function loadRemoteVersion() {
   }
 
   try {
-    const { data, error } = await supa
-      .from("project_versions")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(1);
+    const { data, error } = await supa.from("project_versions").select("*").order("created_at", { ascending: false }).limit(1);
 
     if (error) {
       status.textContent = `Error: ${error.message}`;
