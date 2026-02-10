@@ -13,7 +13,7 @@
       rel="stylesheet"
     />
 
-    <!-- ✅ IMPORTMAP (OBLIGATORIO si script.js hace: import ... from "three") -->
+    <!-- ✅ IMPORTMAP (opcional; tu script.js actual usa imports dinámicos por URL) -->
     <script type="importmap">
       {
         "imports": {
@@ -43,9 +43,11 @@
           <a href="#editor" data-tooltip="Ir al editor BIM 3D">Editor BIM</a>
           <a href="#backend" data-tooltip="Ir a persistencia (local y Supabase)">Backend</a>
 
-          <button class="primary"
+          <button
+            class="primary"
             data-action="open-demo"
-            data-tooltip="Abrir modal para elegir rol y comenzar">
+            data-tooltip="Abrir modal para elegir rol y comenzar"
+          >
             Crear mi nave
           </button>
         </div>
@@ -61,17 +63,21 @@
           </p>
 
           <div class="cta-row">
-            <button class="primary"
+            <button
+              class="primary"
               data-action="scroll"
               data-target="#industrial"
-              data-tooltip="Bajar a la vista industrial con visor 3D + paneles">
+              data-tooltip="Bajar a la vista industrial con visor 3D + paneles"
+            >
               Ver plataforma industrial
             </button>
 
-            <button class="ghost"
+            <button
+              class="ghost"
               data-action="scroll"
               data-target="#wizard"
-              data-tooltip="Bajar al asistente paso a paso para generar una nave">
+              data-tooltip="Bajar al asistente paso a paso para generar una nave"
+            >
               Abrir asistente
             </button>
           </div>
@@ -110,14 +116,18 @@
           </ul>
 
           <div class="button-row">
-            <button class="ghost"
+            <button
+              class="ghost"
               data-action="run-rules"
-              data-tooltip="Ejecutar validaciones sobre el modelo actual">
+              data-tooltip="Ejecutar validaciones sobre el modelo actual"
+            >
               Ejecutar validaciones
             </button>
-            <button class="ghost"
+            <button
+              class="ghost"
               data-action="export-bom"
-              data-tooltip="Descargar listado de materiales (BOM) en CSV">
+              data-tooltip="Descargar listado de materiales (BOM) en CSV"
+            >
               Descargar BOM
             </button>
           </div>
@@ -264,9 +274,11 @@
               <h3>Acciones</h3>
 
               <div class="button-col">
-                <button class="primary"
+                <button
+                  class="primary"
                   data-action="generate-model"
-                  data-tooltip="Generar el modelo paramétrico y actualizar tablas/visor">
+                  data-tooltip="Generar el modelo paramétrico y actualizar tablas/visor"
+                >
                   Generar modelo
                 </button>
 
@@ -275,21 +287,15 @@
                   <input id="ifc-file" type="file" accept=".ifc" />
                 </label>
 
-                <button class="ghost"
-                  data-action="reset-viewer"
-                  data-tooltip="Reiniciar el visor 3D a estado inicial">
+                <button class="ghost" data-action="reset-viewer" data-tooltip="Reiniciar el visor 3D a estado inicial">
                   Reiniciar visor
                 </button>
 
-                <button class="ghost"
-                  data-action="export-bom"
-                  data-tooltip="Descargar listado de materiales (BOM) en CSV">
+                <button class="ghost" data-action="export-bom" data-tooltip="Descargar listado de materiales (BOM) en CSV">
                   Exportar BOM (CSV)
                 </button>
 
-                <button class="ghost"
-                  data-action="export-json"
-                  data-tooltip="Descargar el modelo (JSON) para versionado o backend">
+                <button class="ghost" data-action="export-json" data-tooltip="Descargar el modelo (JSON) para versionado o backend">
                   Exportar JSON
                 </button>
               </div>
@@ -305,7 +311,13 @@
               <span class="status" id="viewer-status">Sin archivo</span>
             </div>
 
-            <div id="ifc-viewer" class="ifc-viewer" aria-label="Visor 3D"></div>
+            <!-- ✅ Fallback visual: si styles.css no aplica o queda sin alto, igual se ve -->
+            <div
+              id="ifc-viewer"
+              class="ifc-viewer"
+              aria-label="Visor 3D"
+              style="min-height: 520px;"
+            ></div>
 
             <div class="viewer-footer">
               <div class="viewer-kpis">
@@ -323,9 +335,7 @@
                 </div>
               </div>
 
-              <button class="ghost"
-                data-action="run-rules"
-                data-tooltip="Ejecutar reglas de validación sobre el modelo actual">
+              <button class="ghost" data-action="run-rules" data-tooltip="Ejecutar reglas de validación sobre el modelo actual">
                 Validar modelo
               </button>
             </div>
@@ -342,7 +352,8 @@
                       <th>Elemento</th>
                       <th>Cantidad</th>
                       <th>Peso (kg)</th>
-                      <th>Estado</th>
+                      <!-- ✅ Compatible con el script nuevo: acá ahora puede aparecer m.l. o INFO/OK -->
+                      <th>Info / Estado</th>
                     </tr>
                   </thead>
                   <tbody id="materials-table">
