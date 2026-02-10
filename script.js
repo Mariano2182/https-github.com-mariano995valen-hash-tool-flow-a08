@@ -632,4 +632,756 @@ function renderBOMFromModel() {
     { name: "—", qty: "", w: "", status: "—" },
 
     { name: "MÉTRICAS (PESO POR SISTEMA)", qty: "", w: "", status: "INFO" },
-    { name: "Peso primaria (kg) — 
+    { name: "Peso primaria (kg) — pórticos", qty: "", w: fmt(Math.round(grouped.wPrimary)), status: "OK" },
+    { name: "Peso secundaria (kg) — correas+largueros", qty: "", w: fmt(Math.round(grouped.wSecondary)), status: "OK" },
+    { name: "Peso total (kg)", qty: "", w: fmt(Math.round(grouped.wTotal)), status: "OK" },
+
+    { name: "—", qty: "", w: "", status: "—" },
+
+    { name: "MÉTRICAS (PLANTA / CUBIERTA)", qty: "", w: "", status: "INFO" },
+    { name: "Área en planta (m²)", qty: fmt2(eng.planArea), w: "", status: "OK" },
+    { name: "Área de cubierta aprox (m²)", qty: fmt2(eng.roofArea), w: "", status: "OK" },
+
+    { name: "kg/m² TOTAL (planta)", qty: "", w: fmt2(eng.kgm2Plan), status: "OK" },
+    { name: "kg/m² PRIMARIA (planta)", qty: "", w: fmt2(eng.kgm2PlanPrimary), status: "OK" },
+    { name: "kg/m² SECUNDARIA (planta)", qty: "", w: fmt2(eng.kgm2PlanSecondary), status: "OK" },
+
+    { name: "kg/m² TOTAL (cubierta)", qty: "", w: fmt2(eng.kgm2Roof), status: "OK" },
+    { name: "kg/m² PRIMARIA (cubierta)", qty: "", w: fmt2(eng.kgm2RoofPrimary), status: "OK" },
+    { name: "kg/m² SECUNDARIA (cubierta)", qty: "", w: fmt2(eng.kgm2RoofSecondary), status: "OK" },
+
+    { name: "—", qty: "", w: "", status: "—" },
+
+    { name: "MÉTRICAS (MODULACIÓN)", qty: "", w: "", status: "INFO" },
+    { name: "Pórticos (un)", qty: fmt(b.frames || 0), w: "", status: "OK" },
+    { name: "Vanos (frames-1)", qty: fmt(eng.bays), w: "", status: "OK" },
+    { name: "Paso entre pórticos (m)", qty: fmt2(eng.step), w: "", status: "OK" },
+
+    { name: "—", qty: "", w: "", status: "—" },
+
+    { name: "CORREAS DE TECHO (ULTRA TÉCNICO)", qty: "", w: "", status: "INFO" },
+    { name: "Separación correas (m)", qty: fmt2(b.purlinSpacing || 0), w: "", status: "OK" },
+    { name: "Cantidad líneas correas (across)", qty: fmt(eng.purlinLines), w: "", status: "OK" },
+    { name: "Miembros correas segmentados (líneas × vanos)", qty: fmt(eng.purlinSegments), w: "", status: "OK" },
+
+    { name: "—", qty: "", w: "", status: "—" },
+
+    { name: "LARGUEROS DE PARED (ULTRA TÉCNICO)", qty: "", w: "", status: "INFO" },
+    { name: "Separación largueros (m)", qty: fmt2(b.girtSpacing || 0), w: "", status: "OK" },
+    { name: "Niveles largueros (izq)", qty: fmt(eng.girtLevelsL), w: "", status: "OK" },
+    { name: "Niveles largueros (der)", qty: fmt(eng.girtLevelsR), w: "", status: "OK" },
+    { name: "Miembros largueros segmentados ((niveles izq+der) × vanos)", qty: fmt(eng.girtSegments), w: "", status: "OK" },
+
+    { name: "—", qty: "", w: "", status: "—" },
+
+    { name: "METROS LINEALES (m.l.) POR TIPO", qty: "", w: "", status: "INFO" },
+    ...mlByType.map((r) => ({ name: `m.l. ${r.type}`, qty: fmt2(r.ml), w: "", status: "OK" })),
+  ];
+
+  const bomHtml = rows
+    .map((r) => {
+      return `
+      <tr>
+        <td>${r.type}</td>
+        <td>${fmt(r.qty)}</td>
+        <td>${fmt(Math.round(r.weightKg))}</td>
+        <td>${fmt2(r.ml)} m.l.</td>
+      </tr>
+    `;
+    })
+    .join("");
+
+  const techHtml = techRows
+    .map((t) => {
+      return `
+      <tr>
+        <td>${t.name}</td>
+        <td>${t.qty ?? ""}</td>
+        <td>${t.w ?? ""}</td>
+        <td>${t.status ?? ""}</td>
+      </tr>
+    `;
+    })
+    .join("");
+
+  tbody.innerHTML = bomHtml + techHtml;
+
+  const st = qs("#ifc-status");
+  if (st) {
+    st.textContent =
+      `Modelo: ${b.roof || "-"} — pendiente ${((b.slope || 0) * 100).toFixed(1)}% — ` +
+      `kg/m² total(planta) ${fmt2(eng.kgm2Plan)} | prim ${fmt2(eng.kgm2PlanPrimary)} | sec ${fmt2(eng.kgm2PlanSecondary)}`;
+  }
+}
+
+// -------------------- EXPORTS (CSV incluye kg/m² por grupo + m.l.) --------------------
+function exportJSON() {
+  const st = qs("#ifc-status");
+  if (!state.model) {
+    if (st) st.textContent = "No hay modelo para exportar.";
+    return;
+  }
+  downloadText(`rmm_model_v${state.version}.json`, JSON.stringify(state.model, null, 2), "application/json");
+}
+
+function exportBOM() {
+  const st = qs("#ifc-status");
+  if (!state.model) {
+    if (st) st.textContent = "No hay modelo para exportar.";
+    return;
+  }
+
+  const b = state.model.building || {};
+  const eng = computeEngineering(state.model);
+  const totals = computeTotals(state.model);
+  const grouped = computeTotalsByGroup(state.model);
+  const mlByType = computeLinearMetersByType(state.model);
+
+  // BOM por tipo
+  const map = new Map();
+  for (const e of state.model.elements) {
+    const k = e.type;
+    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0, ml: 0 };
+    cur.qty += Number(e.qty) || 0;
+    cur.weightKg += Number(e.weightKg) || 0;
+    cur.ml += (Number(e.qty) || 0) * (Number(e.length) || 0);
+    map.set(k, cur);
+  }
+
+  const rows = [...map.values()];
+  const header = "Elemento,Cantidad,Peso_kg,MetrosLineales_m,Version\n";
+  const lines = rows.map((r) => `${r.type},${r.qty},${Math.round(r.weightKg)},${r.ml.toFixed(2)},${state.version}`).join("\n");
+
+  const extra =
+    "\n\n#PESO_POR_SISTEMA\n" +
+    `peso_primaria_kg,,${Math.round(grouped.wPrimary)},,\n` +
+    `peso_secundaria_kg,,${Math.round(grouped.wSecondary)},,\n` +
+    `peso_total_kg,,${Math.round(grouped.wTotal)},,\n` +
+    "\n#METRICAS_TECNICAS\n" +
+    `roof,${b.roof || ""},,,\n` +
+    `pendiente_pct,${((b.slope || 0) * 100).toFixed(2)},,,\n` +
+    `span_m,${fmt2(b.span || 0)},,,\n` +
+    `length_m,${fmt2(b.length || 0)},,,\n` +
+    `frames,${b.frames || 0},,,\n` +
+    `bays,${eng.bays},,,\n` +
+    `step_m,${fmt2(eng.step)},,,\n` +
+    `area_planta_m2,${fmt2(eng.planArea)},,,\n` +
+    `area_cubierta_m2,${fmt2(eng.roofArea)},,,\n` +
+    `peso_total_kg,,${Math.round(totals.weight)},,\n` +
+    `kg_m2_total_planta,,${fmt2(eng.kgm2Plan)},,\n` +
+    `kg_m2_primaria_planta,,${fmt2(eng.kgm2PlanPrimary)},,\n` +
+    `kg_m2_secundaria_planta,,${fmt2(eng.kgm2PlanSecondary)},,\n` +
+    `kg_m2_total_cubierta,,${fmt2(eng.kgm2Roof)},,\n` +
+    `kg_m2_primaria_cubierta,,${fmt2(eng.kgm2RoofPrimary)},,\n` +
+    `kg_m2_secundaria_cubierta,,${fmt2(eng.kgm2RoofSecondary)},,\n` +
+    `purlin_spacing_m,${fmt2(b.purlinSpacing || 0)},,,\n` +
+    `purlin_lines,${eng.purlinLines},,,\n` +
+    `purlin_segments,${eng.purlinSegments},,,\n` +
+    `girt_spacing_m,${fmt2(b.girtSpacing || 0)},,,\n` +
+    `girt_levels_left,${eng.girtLevelsL},,,\n` +
+    `girt_levels_right,${eng.girtLevelsR},,,\n` +
+    `girt_segments,${eng.girtSegments},,,\n` +
+    "\n#METROS_LINEALES_POR_TIPO\n" +
+    mlByType.map((r) => `ml_${r.type},,,${r.ml.toFixed(2)},\n`).join("");
+
+  downloadText(`rmm_bom_ultra_v${state.version}.csv`, header + lines + extra, "text/csv");
+}
+
+// -------------------- REGLAS (VALIDACIONES) --------------------
+function rule(id, name, ok, msg) {
+  return { id, name, ok: Boolean(ok), msg: msg || "" };
+}
+
+function getTypicalRanges(cover) {
+  if (cover === "panel") {
+    return {
+      purlin: { min: 1.2, max: 2.5 },
+      girt: { min: 1.2, max: 2.2 },
+    };
+  }
+  return {
+    purlin: { min: 0.8, max: 1.5 },
+    girt: { min: 1.0, max: 2.0 },
+  };
+}
+
+function runRules() {
+  const summary = qs("#rules-summary");
+  const list = qs("#rules-list");
+  if (!summary || !list) return;
+
+  if (!state.model) {
+    summary.textContent = "No hay modelo para validar.";
+    list.innerHTML = "";
+    return;
+  }
+
+  const b = state.model.building;
+  const results = [];
+
+  results.push(rule("R1", "Dimensiones mínimas", b.span >= 10 && b.length >= 20 && b.height >= 4, "Ancho/Largo/Altura fuera de rango mínimo."));
+  results.push(rule("R2", "Cantidad de pórticos", b.frames >= 4 && b.frames <= 24, "Cantidad de pórticos fuera de rango."));
+  results.push(rule("R3", "Pendiente razonable", b.slope >= 0.02 && b.slope <= 0.25, "Pendiente fuera de rango típico."));
+  results.push(rule("R4", "Elementos generados", (state.model.elements?.length || 0) > 0, "No se generaron elementos."));
+
+  const ranges = getTypicalRanges(b.cover);
+  const pOk = b.purlinSpacing >= ranges.purlin.min && b.purlinSpacing <= ranges.purlin.max;
+  const gOk = b.girtSpacing >= ranges.girt.min && b.girtSpacing <= ranges.girt.max;
+
+  results.push(
+    rule(
+      "R5",
+      "Separación correas techo (típica)",
+      pOk,
+      `Fuera de rango típico para "${b.cover}". Recomendado: ${ranges.purlin.min}–${ranges.purlin.max} m (verificar por cálculo y ficha técnica).`
+    )
+  );
+
+  results.push(
+    rule(
+      "R6",
+      "Separación largueros pared (típica)",
+      gOk,
+      `Fuera de rango típico para "${b.cover}". Recomendado: ${ranges.girt.min}–${ranges.girt.max} m (verificar por cálculo y ficha técnica).`
+    )
+  );
+
+  const ok = results.filter((r) => r.ok).length;
+  summary.textContent = `Validaciones: ${ok}/${results.length} OK`;
+
+  list.innerHTML = results
+    .map(
+      (r) => `
+      <div class="rule-item">
+        <strong>${r.id} — ${r.name}</strong>
+        <div>${r.ok ? "✅ OK" : "⚠️ Revisar"}</div>
+        ${r.ok ? "" : `<div class="helper">${r.msg}</div>`}
+      </div>
+    `
+    )
+    .join("");
+}
+
+// -------------------- PREVIEW 3D (Three.js) --------------------
+async function ensurePreview3D() {
+  if (state.preview.ready) return true;
+
+  const container = qs("#ifc-viewer");
+  if (!container) return false;
+
+  try {
+    const THREE = await import("https://unpkg.com/three@0.158.0/build/three.module.js");
+    const oc = await import("https://unpkg.com/three@0.158.0/examples/jsm/controls/OrbitControls.js");
+
+    state.preview.THREE = THREE;
+    state.preview.OrbitControls = oc.OrbitControls;
+
+    const {
+      WebGLRenderer,
+      Scene,
+      PerspectiveCamera,
+      Color,
+      Fog,
+      AxesHelper,
+      GridHelper,
+      AmbientLight,
+      DirectionalLight,
+    } = THREE;
+
+    container.innerHTML = "";
+
+    const renderer = new WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    container.appendChild(renderer.domElement);
+
+    const scene = new Scene();
+    scene.background = new Color(0x071226);
+    scene.fog = new Fog(0x071226, 80, 500);
+
+    const camera = new PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 2000);
+    camera.position.set(35, 18, 60);
+
+    const controls = new state.preview.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.target.set(0, 6, 20);
+
+    const grid = new GridHelper(300, 120);
+    grid.position.y = 0;
+    scene.add(grid);
+
+    const axes = new AxesHelper(8);
+    scene.add(axes);
+
+    const amb = new AmbientLight(0xffffff, 0.55);
+    scene.add(amb);
+
+    const dir = new DirectionalLight(0xffffff, 0.9);
+    dir.position.set(40, 60, 20);
+    scene.add(dir);
+
+    state.preview.renderer = renderer;
+    state.preview.scene = scene;
+    state.preview.camera = camera;
+    state.preview.controls = controls;
+
+    const ro = new ResizeObserver(() => {
+      if (!state.preview.renderer) return;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      state.preview.renderer.setSize(w, h);
+      state.preview.camera.aspect = w / h;
+      state.preview.camera.updateProjectionMatrix();
+    });
+    ro.observe(container);
+
+    const tick = () => {
+      state.preview.animId = requestAnimationFrame(tick);
+      controls.update();
+      renderer.render(scene, camera);
+    };
+    tick();
+
+    state.preview.ready = true;
+    const vs = qs("#viewer-status");
+    if (vs) vs.textContent = "Preview activo";
+    const st = qs("#ifc-status");
+    if (st) st.textContent = "Preview 3D listo. Generá un modelo para ver estructura.";
+
+    return true;
+  } catch (err) {
+    const containerEl = qs("#ifc-viewer");
+    if (containerEl) {
+      containerEl.innerHTML = `
+        <div style="padding:16px;color:#e2e8f0;font-weight:700;">
+          No se pudo cargar Three.js desde CDN.<br/>
+          <span style="font-weight:400;color:#94a3b8;">
+            Motivo: ${String(err?.message || err)}
+          </span>
+        </div>
+      `;
+    }
+    const vs = qs("#viewer-status");
+    if (vs) vs.textContent = "Error 3D";
+    return false;
+  }
+}
+
+function resetViewer() {
+  const container = qs("#ifc-viewer");
+  if (!container) return;
+
+  if (state.preview.animId) cancelAnimationFrame(state.preview.animId);
+
+  state.preview.ready = false;
+  state.preview.THREE = null;
+  state.preview.OrbitControls = null;
+  state.preview.renderer = null;
+  state.preview.scene = null;
+  state.preview.camera = null;
+  state.preview.controls = null;
+  state.preview.animId = null;
+
+  container.innerHTML = "";
+  const vs = qs("#viewer-status");
+  if (vs) vs.textContent = "Sin archivo";
+  const st = qs("#ifc-status");
+  if (st) st.textContent = "Visor reiniciado. Preview se reinicia al generar modelo.";
+}
+
+function addMember(THREE, parent, a, b, thickness, material) {
+  const dir = new THREE.Vector3().subVectors(b, a);
+  const len = dir.length();
+  if (len <= 0.0001) return;
+
+  const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
+
+  const geom = new THREE.BoxGeometry(thickness, thickness, len);
+  const mesh = new THREE.Mesh(geom, material);
+
+  mesh.position.copy(mid);
+  const zAxis = new THREE.Vector3(0, 0, 1);
+  const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.normalize());
+  mesh.quaternion.copy(q);
+
+  parent.add(mesh);
+}
+
+function fitToGroup(THREE, camera, controls, group) {
+  const box = new THREE.Box3().setFromObject(group);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const dist = maxDim * 1.6;
+
+  camera.position.set(center.x + dist, center.y + dist * 0.55, center.z + dist);
+  controls.target.copy(center);
+  controls.update();
+}
+
+// Preview paramétrico: pórticos + correas techo (por vano) + largueros (por vano)
+async function renderParametricPreview() {
+  if (!state.model) return;
+
+  const ok = await ensurePreview3D();
+  if (!ok) return;
+
+  const THREE = state.preview.THREE;
+  const scene = state.preview.scene;
+
+  const old = scene.getObjectByName(state.preview.groupName);
+  if (old) scene.remove(old);
+
+  const group = new THREE.Group();
+  group.name = state.preview.groupName;
+
+  const { span, length, height, frames, roof, slope, purlinSpacing, girtSpacing } = state.model.building;
+
+  const halfSpan = span / 2;
+  const step = frames > 1 ? length / (frames - 1) : length;
+
+  const matCol = new THREE.MeshStandardMaterial({ color: 0x2563eb, metalness: 0.2, roughness: 0.6 });
+  const matRafter = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.2, roughness: 0.55 });
+  const matPurlin = new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.1, roughness: 0.7 });
+  const matGirt = new THREE.MeshStandardMaterial({ color: 0x93c5fd, metalness: 0.1, roughness: 0.75 });
+
+  const colSize = Math.max(0.12, span * 0.006);
+  const rafterSize = Math.max(0.10, span * 0.005);
+  const purlinSize = Math.max(0.06, span * 0.0035);
+  const girtSize = Math.max(0.05, span * 0.003);
+
+  function roofY(x) {
+    if (roof === "plana") return height;
+
+    if (roof === "una_agua") {
+      const t = (x + halfSpan) / span; // 0..1
+      return height + t * (span * slope);
+    }
+
+    const t = Math.abs(x) / halfSpan; // 0 centro, 1 alero
+    return height + (1 - t) * (halfSpan * slope);
+  }
+
+  // PÓRTICOS
+  for (let i = 0; i < frames; i++) {
+    const z = i * step;
+
+    let topL = new THREE.Vector3(-halfSpan, height, z);
+    let topR = new THREE.Vector3(halfSpan, height, z);
+
+    if (roof === "una_agua") {
+      topL = new THREE.Vector3(-halfSpan, height, z);
+      topR = new THREE.Vector3(halfSpan, height + span * slope, z);
+    }
+
+    const baseL = new THREE.Vector3(-halfSpan, 0, z);
+    const baseR = new THREE.Vector3(halfSpan, 0, z);
+    addMember(THREE, group, baseL, topL, colSize, matCol);
+    addMember(THREE, group, baseR, topR, colSize, matCol);
+
+    if (roof === "plana") {
+      const a = new THREE.Vector3(-halfSpan, roofY(-halfSpan), z);
+      const b = new THREE.Vector3(halfSpan, roofY(halfSpan), z);
+      addMember(THREE, group, a, b, rafterSize, matRafter);
+    } else if (roof === "una_agua") {
+      addMember(THREE, group, topL, topR, rafterSize, matRafter);
+    } else {
+      const eaveL = new THREE.Vector3(-halfSpan, height, z);
+      const eaveR = new THREE.Vector3(halfSpan, height, z);
+      const ridge = new THREE.Vector3(0, height + halfSpan * slope, z);
+
+      addMember(THREE, group, eaveL, ridge, rafterSize, matRafter);
+      addMember(THREE, group, ridge, eaveR, rafterSize, matRafter);
+    }
+  }
+
+  // CORREAS TECHO (por vano)
+  const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
+
+  for (let bay = 0; bay < frames - 1; bay++) {
+    const z0 = bay * step;
+    const z1 = (bay + 1) * step;
+
+    if (roof === "dos_aguas") {
+      const halfLines = Math.max(1, Math.floor(linesAcross / 2));
+
+      for (let k = 0; k <= halfLines; k++) {
+        const x = -halfSpan + (k / halfLines) * halfSpan;
+        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), purlinSize, matPurlin);
+      }
+
+      for (let k = 1; k <= halfLines; k++) {
+        const x = (k / halfLines) * halfSpan;
+        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), purlinSize, matPurlin);
+      }
+
+      addMember(THREE, group, new THREE.Vector3(0, roofY(0), z0), new THREE.Vector3(0, roofY(0), z1), purlinSize, matPurlin);
+    } else {
+      for (let k = 0; k <= linesAcross; k++) {
+        const x = -halfSpan + (k / linesAcross) * span;
+        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), purlinSize, matPurlin);
+      }
+    }
+  }
+
+  // LARGUEROS (por vano)
+  for (let bay = 0; bay < frames - 1; bay++) {
+    const z0 = bay * step;
+    const z1 = (bay + 1) * step;
+
+    const topL = height;
+    const topR = roof === "una_agua" ? height + span * slope : height;
+
+    const startY = 1.2;
+    const maxYL = Math.max(startY, topL - 0.30);
+    const maxYR = Math.max(startY, topR - 0.30);
+
+    const levelsL = Math.max(2, Math.floor((maxYL - startY) / Math.max(0.1, girtSpacing)) + 1);
+    const levelsR = Math.max(2, Math.floor((maxYR - startY) / Math.max(0.1, girtSpacing)) + 1);
+
+    for (let i = 0; i < levelsL; i++) {
+      const y = Math.min(maxYL, startY + i * girtSpacing);
+      addMember(THREE, group, new THREE.Vector3(-halfSpan, y, z0), new THREE.Vector3(-halfSpan, y, z1), girtSize, matGirt);
+    }
+
+    for (let i = 0; i < levelsR; i++) {
+      const y = Math.min(maxYR, startY + i * girtSpacing);
+      addMember(THREE, group, new THREE.Vector3(halfSpan, y, z0), new THREE.Vector3(halfSpan, y, z1), girtSize, matGirt);
+    }
+  }
+
+  scene.add(group);
+
+  fitToGroup(THREE, state.preview.camera, state.preview.controls, group);
+
+  const vs = qs("#viewer-status");
+  if (vs) vs.textContent = "Preview activo";
+
+  const eng = computeEngineering(state.model);
+  const st = qs("#ifc-status");
+  if (st) {
+    st.textContent =
+      `Preview 3D: ${roof} — pendiente ${(slope * 100).toFixed(1)}% — ` +
+      `correas ${purlinSpacing.toFixed(2)}m — largueros ${girtSpacing.toFixed(2)}m — ` +
+      `kg/m² total(planta) ${fmt2(eng.kgm2Plan)} | prim ${fmt2(eng.kgm2PlanPrimary)} | sec ${fmt2(eng.kgm2PlanSecondary)}`;
+  }
+}
+
+// -------------------- VERSIONADO LOCAL --------------------
+function localKey() {
+  const name = qs("#project-name")?.value?.trim() || "rmm_project";
+  return `rmm_versions_${name}`;
+}
+
+function saveLocalVersion() {
+  const ps = qs("#persistence-status");
+  if (!state.model) {
+    if (ps) ps.textContent = "No hay modelo para guardar.";
+    return;
+  }
+
+  const key = localKey();
+  const current = JSON.parse(localStorage.getItem(key) || "[]");
+  const entry = { savedAt: nowISO(), version: state.version, model: state.model };
+  current.unshift(entry);
+  localStorage.setItem(key, JSON.stringify(current.slice(0, 50)));
+
+  if (ps) ps.textContent = `Versión guardada localmente (v${state.version}).`;
+  renderLocalVersions();
+}
+
+function loadLocalVersion() {
+  const ps = qs("#persistence-status");
+  const key = localKey();
+  const current = JSON.parse(localStorage.getItem(key) || "[]");
+  if (!current.length) {
+    if (ps) ps.textContent = "No hay versiones guardadas.";
+    return;
+  }
+  const latest = current[0];
+  state.model = latest.model;
+  state.version = latest.version || state.version;
+
+  const b = state.model?.building;
+  if (b) {
+    if (qs("#ind-slope")) qs("#ind-slope").value = String(Math.round((b.slope ?? 0.1) * 100));
+    if (qs("#ind-purlin")) qs("#ind-purlin").value = String(b.purlinSpacing ?? 1.5);
+    if (qs("#ind-girt")) qs("#ind-girt").value = String(b.girtSpacing ?? 1.5);
+    if (qs("#ind-cover")) qs("#ind-cover").value = b.cover ?? "chapa";
+    if (qs("#ind-roof")) qs("#ind-roof").value = b.roof ?? "dos_aguas";
+  }
+  updateIndustrialLabels();
+
+  if (ps) ps.textContent = `Versión cargada (v${state.version}).`;
+  renderBOMFromModel();
+  refreshKPIs();
+  runRules();
+  renderLocalVersions();
+  renderParametricPreview();
+}
+
+function renderLocalVersions() {
+  const box = qs("#version-list");
+  if (!box) return;
+
+  const key = localKey();
+  const current = JSON.parse(localStorage.getItem(key) || "[]");
+
+  if (!current.length) {
+    box.innerHTML = "";
+    return;
+  }
+
+  box.innerHTML = current
+    .slice(0, 8)
+    .map(
+      (v) => `
+      <div class="rule-item">
+        <strong>v${v.version} — ${new Date(v.savedAt).toLocaleString("es-AR")}</strong>
+        <div class="button-row">
+          <button class="ghost" data-action="load-local" data-tooltip="Cargar la última versión local (demo)">Cargar última</button>
+          <button class="ghost" data-action="export-json" data-tooltip="Descargar el modelo actual en JSON">Exportar JSON</button>
+        </div>
+      </div>
+    `
+    )
+    .join("");
+}
+
+// -------------------- SUPABASE (opcional) --------------------
+let supa = null;
+
+function connectSupabase() {
+  const url = qs("#supabase-url")?.value?.trim();
+  const key = qs("#supabase-key")?.value?.trim();
+  const status = qs("#supabase-status");
+  if (!status) return;
+
+  if (!url || !key || !window.supabase) {
+    status.textContent = "Falta Supabase URL o ANON KEY.";
+    return;
+  }
+
+  try {
+    supa = window.supabase.createClient(url, key);
+    status.textContent = "Conectado. (Ahora podés guardar/cargar).";
+  } catch (err) {
+    status.textContent = `Error conectando: ${err?.message || err}`;
+  }
+}
+
+async function saveRemoteVersion() {
+  const status = qs("#supabase-status");
+  if (!status) return;
+  if (!supa) {
+    status.textContent = "No estás conectado a Supabase.";
+    return;
+  }
+  if (!state.model) {
+    status.textContent = "No hay modelo para guardar.";
+    return;
+  }
+
+  const { data: auth } = await supa.auth.getUser();
+  const userId = auth?.user?.id;
+  if (!userId) {
+    status.textContent = "Necesitás iniciar sesión real en Supabase Auth para guardar.";
+    return;
+  }
+
+  try {
+    const projectName = qs("#project-name")?.value?.trim() || "Proyecto";
+    const clientName = qs("#project-client")?.value?.trim() || null;
+
+    const payload = { owner_id: userId, project_name: projectName, client_name: clientName, bim_json: state.model };
+    const { error } = await supa.from("project_versions").insert(payload);
+
+    status.textContent = error ? `Error: ${error.message}` : "Versión guardada en Supabase.";
+  } catch (err) {
+    status.textContent = `Error: ${err?.message || err}`;
+  }
+}
+
+async function loadRemoteVersion() {
+  const status = qs("#supabase-status");
+  if (!status) return;
+  if (!supa) {
+    status.textContent = "No estás conectado a Supabase.";
+    return;
+  }
+
+  const { data: auth } = await supa.auth.getUser();
+  const userId = auth?.user?.id;
+  if (!userId) {
+    status.textContent = "Necesitás iniciar sesión real en Supabase Auth para cargar.";
+    return;
+  }
+
+  try {
+    const { data, error } = await supa
+      .from("project_versions")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (error) {
+      status.textContent = `Error: ${error.message}`;
+      return;
+    }
+
+    if (!data?.length) {
+      status.textContent = "No hay versiones en Supabase.";
+      return;
+    }
+
+    const latest = data[0];
+    state.model = latest.bim_json;
+    state.version = state.model?.meta?.version || state.version;
+
+    const b = state.model?.building;
+    if (b) {
+      if (qs("#ind-slope")) qs("#ind-slope").value = String(Math.round((b.slope ?? 0.1) * 100));
+      if (qs("#ind-purlin")) qs("#ind-purlin").value = String(b.purlinSpacing ?? 1.5);
+      if (qs("#ind-girt")) qs("#ind-girt").value = String(b.girtSpacing ?? 1.5);
+      if (qs("#ind-cover")) qs("#ind-cover").value = b.cover ?? "chapa";
+      if (qs("#ind-roof")) qs("#ind-roof").value = b.roof ?? "dos_aguas";
+      updateIndustrialLabels();
+    }
+
+    status.textContent = "Versión cargada desde Supabase.";
+    renderBOMFromModel();
+    refreshKPIs();
+    runRules();
+    renderParametricPreview();
+  } catch (err) {
+    status.textContent = `Error: ${err?.message || err}`;
+  }
+}
+
+// -------------------- INIT --------------------
+async function init() {
+  enhanceTooltips();
+  bindModals();
+  bindScrollButtons();
+  bindAuth();
+  bindWizard();
+  bindIndustrialControls();
+
+  renderPermissions(null);
+  renderBOMFromModel();
+  refreshKPIs();
+  runRules();
+  renderLocalVersions();
+
+  await ensurePreview3D();
+  const vs = qs("#viewer-status");
+  if (vs) vs.textContent = "Preview activo";
+  const st = qs("#ifc-status");
+  if (st) st.textContent = "Preview 3D listo. Generá un modelo para ver estructura.";
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+  init();
+});
