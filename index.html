@@ -13,7 +13,8 @@
       rel="stylesheet"
     />
 
-    <!-- ✅ IMPORTMAP (opcional; tu script.js actual usa imports dinámicos por URL) -->
+    <!-- ✅ IMPORTMAP (opcional; tu script.js actual usa imports dinámicos por URL)
+         Se deja igual para compatibilidad futura si cambiás a import "three". -->
     <script type="importmap">
       {
         "imports": {
@@ -26,11 +27,32 @@
     <!-- Supabase (opcional) -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-    <!-- Script principal -->
+    <!-- ✅ Script principal (ESM) -->
     <script type="module" src="script.js"></script>
+
+    <!-- ✅ Fallback si el usuario tiene JS deshabilitado -->
+    <noscript>
+      <style>
+        .nojs {
+          padding: 14px;
+          margin: 12px 6vw;
+          border-radius: 14px;
+          background: rgba(249, 182, 76, 0.16);
+          border: 1px solid rgba(249, 182, 76, 0.35);
+          color: #0f172a;
+          font-weight: 800;
+        }
+      </style>
+    </noscript>
   </head>
 
   <body>
+    <noscript>
+      <div class="nojs">
+        JavaScript está deshabilitado. El visor 3D y el modelo paramétrico requieren JavaScript para funcionar.
+      </div>
+    </noscript>
+
     <!-- HERO -->
     <header class="hero" id="home">
       <nav class="top-nav">
@@ -47,6 +69,7 @@
             class="primary"
             data-action="open-demo"
             data-tooltip="Abrir modal para elegir rol y comenzar"
+            type="button"
           >
             Crear mi nave
           </button>
@@ -68,6 +91,7 @@
               data-action="scroll"
               data-target="#industrial"
               data-tooltip="Bajar a la vista industrial con visor 3D + paneles"
+              type="button"
             >
               Ver plataforma industrial
             </button>
@@ -77,6 +101,7 @@
               data-action="scroll"
               data-target="#wizard"
               data-tooltip="Bajar al asistente paso a paso para generar una nave"
+              type="button"
             >
               Abrir asistente
             </button>
@@ -120,6 +145,7 @@
               class="ghost"
               data-action="run-rules"
               data-tooltip="Ejecutar validaciones sobre el modelo actual"
+              type="button"
             >
               Ejecutar validaciones
             </button>
@@ -127,6 +153,7 @@
               class="ghost"
               data-action="export-bom"
               data-tooltip="Descargar listado de materiales (BOM) en CSV"
+              type="button"
             >
               Descargar BOM
             </button>
@@ -149,10 +176,16 @@
           <article class="card">
             <h3>Login por rol (demo)</h3>
 
-            <form id="auth-form" class="auth-form">
+            <form id="auth-form" class="auth-form" autocomplete="on">
               <label>
                 Email
-                <input type="email" id="auth-email" placeholder="usuario@empresa.com" required />
+                <input
+                  type="email"
+                  id="auth-email"
+                  placeholder="usuario@empresa.com"
+                  required
+                  autocomplete="email"
+                />
               </label>
 
               <label>
@@ -169,13 +202,23 @@
                 <button class="primary" type="submit" data-tooltip="Simular inicio de sesión con rol">
                   Iniciar sesión
                 </button>
-                <button class="ghost" type="button" data-action="logout" data-tooltip="Cerrar sesión y limpiar permisos">
+                <button
+                  class="ghost"
+                  type="button"
+                  data-action="logout"
+                  data-tooltip="Cerrar sesión y limpiar permisos"
+                >
                   Cerrar sesión
                 </button>
               </div>
 
               <div class="button-row">
-                <button class="ghost" type="button" data-action="magic-link" data-tooltip="Enviar magic link si configurás Supabase Auth">
+                <button
+                  class="ghost"
+                  type="button"
+                  data-action="magic-link"
+                  data-tooltip="Enviar magic link si configurás Supabase Auth"
+                >
                   Enviar magic link (Supabase)
                 </button>
               </div>
@@ -187,7 +230,7 @@
 
           <article class="card">
             <h3>Permisos activos</h3>
-            <ul id="auth-permissions" class="permissions-list"></ul>
+            <ul id="auth-permissions" class="permissions-list" aria-label="Lista de permisos"></ul>
           </article>
         </div>
       </section>
@@ -278,6 +321,7 @@
                   class="primary"
                   data-action="generate-model"
                   data-tooltip="Generar el modelo paramétrico y actualizar tablas/visor"
+                  type="button"
                 >
                   Generar modelo
                 </button>
@@ -287,15 +331,30 @@
                   <input id="ifc-file" type="file" accept=".ifc" />
                 </label>
 
-                <button class="ghost" data-action="reset-viewer" data-tooltip="Reiniciar el visor 3D a estado inicial">
+                <button
+                  class="ghost"
+                  data-action="reset-viewer"
+                  data-tooltip="Reiniciar el visor 3D a estado inicial"
+                  type="button"
+                >
                   Reiniciar visor
                 </button>
 
-                <button class="ghost" data-action="export-bom" data-tooltip="Descargar listado de materiales (BOM) en CSV">
+                <button
+                  class="ghost"
+                  data-action="export-bom"
+                  data-tooltip="Descargar listado de materiales (BOM) en CSV"
+                  type="button"
+                >
                   Exportar BOM (CSV)
                 </button>
 
-                <button class="ghost" data-action="export-json" data-tooltip="Descargar el modelo (JSON) para versionado o backend">
+                <button
+                  class="ghost"
+                  data-action="export-json"
+                  data-tooltip="Descargar el modelo (JSON) para versionado o backend"
+                  type="button"
+                >
                   Exportar JSON
                 </button>
               </div>
@@ -335,7 +394,12 @@
                 </div>
               </div>
 
-              <button class="ghost" data-action="run-rules" data-tooltip="Ejecutar reglas de validación sobre el modelo actual">
+              <button
+                class="ghost"
+                data-action="run-rules"
+                data-tooltip="Ejecutar reglas de validación sobre el modelo actual"
+                type="button"
+              >
                 Validar modelo
               </button>
             </div>
@@ -383,13 +447,13 @@
 
         <div class="wizard">
           <div class="wizard-steps">
-            <button class="step active" data-step="1" data-tooltip="Ir a Paso 1: tipo y ubicación">Paso 1</button>
-            <button class="step" data-step="2" data-tooltip="Ir a Paso 2: dimensiones principales">Paso 2</button>
-            <button class="step" data-step="3" data-tooltip="Ir a Paso 3: sistema y perfiles">Paso 3</button>
-            <button class="step" data-step="4" data-tooltip="Ir a Confirmar y generar">Confirmar</button>
+            <button class="step active" data-step="1" data-tooltip="Ir a Paso 1: tipo y ubicación" type="button">Paso 1</button>
+            <button class="step" data-step="2" data-tooltip="Ir a Paso 2: dimensiones principales" type="button">Paso 2</button>
+            <button class="step" data-step="3" data-tooltip="Ir a Paso 3: sistema y perfiles" type="button">Paso 3</button>
+            <button class="step" data-step="4" data-tooltip="Ir a Confirmar y generar" type="button">Confirmar</button>
           </div>
 
-          <form id="wizard-form" class="wizard-form">
+          <form id="wizard-form" class="wizard-form" autocomplete="on">
             <div class="step-panel active" data-step="1">
               <label>
                 Tipo de nave
@@ -475,8 +539,12 @@
             </div>
 
             <div class="wizard-controls">
-              <button type="button" class="ghost" data-action="prev" data-tooltip="Volver al paso anterior">Anterior</button>
-              <button type="button" class="primary" data-action="next" data-tooltip="Avanzar al siguiente paso">Siguiente</button>
+              <button type="button" class="ghost" data-action="prev" data-tooltip="Volver al paso anterior">
+                Anterior
+              </button>
+              <button type="button" class="primary" data-action="next" data-tooltip="Avanzar al siguiente paso">
+                Siguiente
+              </button>
             </div>
           </form>
         </div>
@@ -493,13 +561,18 @@
           <article class="card">
             <h3>Acciones</h3>
             <div class="button-row">
-              <button class="primary" data-action="generate-model" data-tooltip="Generar el modelo actual (paramétrico) y actualizar todo">
+              <button
+                class="primary"
+                data-action="generate-model"
+                data-tooltip="Generar el modelo actual (paramétrico) y actualizar todo"
+                type="button"
+              >
                 Calcular geometría
               </button>
-              <button class="ghost" data-action="export-bom" data-tooltip="Exportar listado BOM en CSV">
+              <button class="ghost" data-action="export-bom" data-tooltip="Exportar listado BOM en CSV" type="button">
                 Exportar BOM
               </button>
-              <button class="ghost" data-action="export-json" data-tooltip="Exportar el modelo en JSON">
+              <button class="ghost" data-action="export-json" data-tooltip="Exportar el modelo en JSON" type="button">
                 Exportar JSON
               </button>
             </div>
@@ -537,10 +610,10 @@
             </div>
 
             <div class="button-row">
-              <button class="primary" data-action="save-local" data-tooltip="Guardar una versión del modelo en tu navegador">
+              <button class="primary" data-action="save-local" data-tooltip="Guardar una versión del modelo en tu navegador" type="button">
                 Guardar versión (local)
               </button>
-              <button class="ghost" data-action="load-local" data-tooltip="Cargar la última versión guardada en tu navegador">
+              <button class="ghost" data-action="load-local" data-tooltip="Cargar la última versión guardada en tu navegador" type="button">
                 Cargar última (local)
               </button>
             </div>
@@ -551,7 +624,7 @@
 
           <article class="card">
             <h3>Supabase Free (opcional)</h3>
-            <p class="helper">Usa el schema `supabase_schema.sql` para crear tablas y RLS.</p>
+            <p class="helper">Usa el schema <code>supabase_schema.sql</code> para crear tablas y RLS.</p>
 
             <div class="grid-two">
               <label>
@@ -565,13 +638,13 @@
             </div>
 
             <div class="button-row">
-              <button class="primary" data-action="connect-supabase" data-tooltip="Conectar tu Supabase para guardar versiones reales">
+              <button class="primary" data-action="connect-supabase" data-tooltip="Conectar tu Supabase para guardar versiones reales" type="button">
                 Conectar
               </button>
-              <button class="ghost" data-action="save-remote" data-tooltip="Guardar una versión del modelo en Supabase">
+              <button class="ghost" data-action="save-remote" data-tooltip="Guardar una versión del modelo en Supabase" type="button">
                 Guardar (Supabase)
               </button>
-              <button class="ghost" data-action="load-remote" data-tooltip="Cargar la última versión guardada en Supabase">
+              <button class="ghost" data-action="load-remote" data-tooltip="Cargar la última versión guardada en Supabase" type="button">
                 Cargar (Supabase)
               </button>
             </div>
@@ -602,21 +675,21 @@
     <!-- MODAL: ELEGIR ROL -->
     <div class="modal" id="demo-modal" aria-hidden="true">
       <div class="modal-content">
-        <button class="modal-close" data-close data-tooltip="Cerrar el modal">×</button>
+        <button class="modal-close" data-close data-tooltip="Cerrar el modal" type="button">×</button>
         <h2>Crear mi nave</h2>
         <p>Elegí un rol para iniciar el flujo.</p>
 
         <div class="role-grid">
-          <button class="ghost" data-action="select-role" data-role="Cliente" data-tooltip="Modo cliente: ver y aprobar">
+          <button class="ghost" data-action="select-role" data-role="Cliente" data-tooltip="Modo cliente: ver y aprobar" type="button">
             Cliente
           </button>
-          <button class="ghost" data-action="select-role" data-role="Ingeniero" data-tooltip="Modo ingeniería: definir estructura y validar">
+          <button class="ghost" data-action="select-role" data-role="Ingeniero" data-tooltip="Modo ingeniería: definir estructura y validar" type="button">
             Ingeniero
           </button>
-          <button class="ghost" data-action="select-role" data-role="Fabricador" data-tooltip="Modo fabricación: BOM, planos y export">
+          <button class="ghost" data-action="select-role" data-role="Fabricador" data-tooltip="Modo fabricación: BOM, planos y export" type="button">
             Fabricador
           </button>
-          <button class="ghost" data-action="select-role" data-role="Admin" data-tooltip="Modo admin: gestión y permisos">
+          <button class="ghost" data-action="select-role" data-role="Admin" data-tooltip="Modo admin: gestión y permisos" type="button">
             Admin
           </button>
         </div>
