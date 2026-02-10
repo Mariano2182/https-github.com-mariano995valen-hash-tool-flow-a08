@@ -429,3 +429,75 @@ input, select, textarea {
 @media (max-width: 720px) {
   .nav-links { width: 100%; justify-content: flex-start; }
 }
+
+/* =========================================================
+   BOM ULTRA TÉCNICO – mejoras visuales (compat 100%)
+   (Requiere que el JS agregue clases: bom-tech, bom-section,
+    bom-divider, bom-ok, bom-warn)
+========================================================= */
+
+.data-table {
+  font-variant-numeric: tabular-nums;
+}
+
+.data-table td:nth-child(2),
+.data-table td:nth-child(3) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.data-table td:nth-child(4),
+.data-table th:nth-child(4) {
+  white-space: nowrap;
+}
+
+/* Filas técnicas */
+.data-table tr.bom-tech td:last-child {
+  font-weight: 900;
+}
+
+/* Divisor "—" */
+.data-table tr.bom-divider td {
+  padding: 6px 10px;
+  border-bottom: none;
+  color: rgba(15, 23, 42, 0.35);
+}
+
+/* Sección INFO (títulos) */
+.data-table tr.bom-section td {
+  background: rgba(31, 124, 255, 0.08);
+  color: var(--primary-dark);
+  font-weight: 900;
+  border-bottom-color: rgba(31, 124, 255, 0.22);
+}
+
+/* Estado OK / WARN */
+.data-table tr.bom-ok td:last-child {
+  color: #0f4ba5;
+}
+.data-table tr.bom-warn td:last-child {
+  color: #b45309;
+}
+
+/* Badge de estado en última columna */
+.data-table tr.bom-tech td:last-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.data-table tr.bom-tech td:last-child::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.25);
+}
+.data-table tr.bom-ok td:last-child::before {
+  background: rgba(31, 124, 255, 0.9);
+}
+.data-table tr.bom-section td:last-child::before {
+  background: rgba(249, 182, 76, 0.95);
+}
+.data-table tr.bom-warn td:last-child::before {
+  background: rgba(245, 158, 11, 0.95);
+}
