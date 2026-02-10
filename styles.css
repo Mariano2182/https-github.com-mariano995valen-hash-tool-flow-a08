@@ -23,6 +23,20 @@ ul, ol { padding-left: 1.4rem; }
 
 button, input, select, textarea { font: inherit; }
 
+img { max-width: 100%; height: auto; display: block; }
+
+/* accesibilidad / UX */
+:focus-visible {
+  outline: 3px solid rgba(31, 124, 255, 0.35);
+  outline-offset: 3px;
+  border-radius: 12px;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .section { padding: 80px 6vw; }
 .section.alt { background: var(--bg-alt); }
 .section-title { max-width: 900px; margin-bottom: 28px; }
@@ -184,6 +198,12 @@ input, select, textarea {
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
+}
+
+.nav-links a:hover {
+  text-decoration: underline;
+  text-underline-offset: 6px;
+  text-decoration-color: rgba(255,255,255,0.55);
 }
 
 .hero-content {
