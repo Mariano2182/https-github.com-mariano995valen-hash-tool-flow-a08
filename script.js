@@ -1,5 +1,4 @@
 // script.js (ES Module) — GitHub Pages friendly (imports por URL completa)
-// BOM “ultra técnico” + correas/largueros segmentados + líneas/niveles + robustez anti-null
 
 const qs = (sel, parent = document) => parent.querySelector(sel);
 const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
@@ -35,6 +34,12 @@ function fmt(n) {
   } catch {
     return String(n);
   }
+}
+
+function fmt2(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "-";
+  return x.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function downloadText(filename, text, mime = "text/plain") {
@@ -145,16 +150,13 @@ function bindAuth() {
 
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    const emailEl = qs("#auth-email");
-    const roleEl = qs("#auth-role");
-    const email = emailEl ? emailEl.value.trim() : "";
-    const role = roleEl ? roleEl.value : "Cliente";
-
+    const email = qs("#auth-email")?.value?.trim() || "";
+    const role = qs("#auth-role")?.value || "Cliente";
     state.session = { email, role, at: nowISO() };
     state.role = role;
 
     const s = qs("#auth-status");
-    if (s) s.textContent = `Sesión demo activa: ${email || "(sin email)"} (${role})`;
+    if (s) s.textContent = `Sesión demo activa: ${email} (${role})`;
     renderPermissions(role);
   });
 
@@ -185,10 +187,6 @@ function bindAuth() {
     try {
       const client = window.supabase.createClient(url, key);
       const email = qs("#auth-email")?.value?.trim() || "";
-      if (!email) {
-        if (status) status.textContent = "Ingresá un email para enviar el magic link.";
-        return;
-      }
       const { error } = await client.auth.signInWithOtp({ email });
       if (status) status.textContent = error ? `Error: ${error.message}` : "Magic link enviado (revisá tu email).";
     } catch (err) {
@@ -287,10 +285,8 @@ function updateIndustrialLabels() {
   setTxt("#ind-frames-value", qs("#ind-frames")?.value ?? "");
 
   if (qs("#ind-slope") && qs("#ind-slope-value")) setTxt("#ind-slope-value", qs("#ind-slope").value);
-  if (qs("#ind-purlin") && qs("#ind-purlin-value"))
-    setTxt("#ind-purlin-value", Number(qs("#ind-purlin").value).toFixed(2));
-  if (qs("#ind-girt") && qs("#ind-girt-value"))
-    setTxt("#ind-girt-value", Number(qs("#ind-girt").value).toFixed(2));
+  if (qs("#ind-purlin") && qs("#ind-purlin-value")) setTxt("#ind-purlin-value", Number(qs("#ind-purlin").value).toFixed(2));
+  if (qs("#ind-girt") && qs("#ind-girt-value")) setTxt("#ind-girt-value", Number(qs("#ind-girt").value).toFixed(2));
 }
 
 function bindIndustrialControls() {
@@ -307,8 +303,8 @@ function bindIndustrialControls() {
   ].forEach((id) => {
     const el = qs(id);
     if (!el) return;
-    el.addEventListener("input", updateIndustrialLabels);
-    el.addEventListener("change", updateIndustrialLabels);
+    el.addEventListener("input", () => updateIndustrialLabels());
+    el.addEventListener("change", () => updateIndustrialLabels());
   });
 
   updateIndustrialLabels();
@@ -345,7 +341,147 @@ function bindIndustrialControls() {
   }
 }
 
-// -------------------- MODELO PARAMÉTRICO (JSON) + BOM ULTRA --------------------
+// -------------------- NUEVAS UTILIDADES BOM (ML + CLASIFICACIÓN) --------------------
+function isPrimaryType(type) {
+  // Estructura primaria = pórticos
+  return type === "columna" || type === "cabio" || type === "viga";
+}
+
+function isSecondaryType(type) {
+  // Estructura secundaria = correas + largueros
+  return type === "correas" || type === "correas_columna";
+}
+
+function computeTotals(model) {
+  const elements = model?.elements || [];
+  const count = elements.reduce((acc, e) => acc + (Number(e.qty) || 0), 0);
+  const weight = elements.reduce((acc, e) => acc + (Number(e.weightKg) || 0), 0);
+  return { count, weight };
+}
+
+function computeTotalsByGroup(model) {
+  const elements = model?.elements || [];
+
+  let wPrimary = 0;
+  let wSecondary = 0;
+  let wOther = 0;
+
+  for (const e of elements) {
+    const w = Number(e.weightKg) || 0;
+    if (isPrimaryType(e.type)) wPrimary += w;
+    else if (isSecondaryType(e.type)) wSecondary += w;
+    else wOther += w;
+  }
+
+  return {
+    wPrimary,
+    wSecondary,
+    wOther,
+    wTotal: wPrimary + wSecondary + wOther,
+  };
+}
+
+function computeLinearMetersByType(model) {
+  // m.l. por tipo = sum(qty * length)
+  const elements = model?.elements || [];
+  const map = new Map();
+
+  for (const e of elements) {
+    const type = e.type || "unknown";
+    const qty = Number(e.qty) || 0;
+    const len = Number(e.length) || 0;
+    const ml = qty * len;
+
+    const cur = map.get(type) || { type, ml: 0, qty: 0, w: 0 };
+    cur.ml += ml;
+    cur.qty += qty;
+    cur.w += Number(e.weightKg) || 0;
+    map.set(type, cur);
+  }
+
+  return [...map.values()].sort((a, b) => a.type.localeCompare(b.type));
+}
+
+// -------------------- MÉTRICAS INGENIERILES --------------------
+function computeEngineering(model) {
+  const b = model?.building;
+  if (!b) {
+    return {
+      bays: 0,
+      step: 0,
+      planArea: 0,
+      roofArea: 0,
+      kgm2Plan: 0,
+      kgm2Roof: 0,
+      kgm2PlanPrimary: 0,
+      kgm2PlanSecondary: 0,
+      kgm2RoofPrimary: 0,
+      kgm2RoofSecondary: 0,
+      purlinLines: 0,
+      purlinSegments: 0,
+      girtLevelsL: 0,
+      girtLevelsR: 0,
+      girtSegments: 0,
+    };
+  }
+
+  const bays = Math.max(1, (b.frames || 0) - 1);
+  const step = (b.frames || 0) > 1 ? (b.length || 0) / ((b.frames || 0) - 1) : (b.length || 0);
+
+  const planArea = (b.span || 0) * (b.length || 0);
+
+  const slope = Number(b.slope || 0);
+  const slopeFactor = b.roof === "plana" ? 1 : Math.sqrt(1 + slope * slope);
+  const roofArea = planArea * slopeFactor;
+
+  const totals = computeTotals(model);
+  const grouped = computeTotalsByGroup(model);
+
+  const kgm2Plan = planArea > 0 ? totals.weight / planArea : 0;
+  const kgm2Roof = roofArea > 0 ? totals.weight / roofArea : 0;
+
+  const kgm2PlanPrimary = planArea > 0 ? grouped.wPrimary / planArea : 0;
+  const kgm2PlanSecondary = planArea > 0 ? grouped.wSecondary / planArea : 0;
+
+  const kgm2RoofPrimary = roofArea > 0 ? grouped.wPrimary / roofArea : 0;
+  const kgm2RoofSecondary = roofArea > 0 ? grouped.wSecondary / roofArea : 0;
+
+  const purlinLines = Math.max(2, Math.floor((b.span || 0) / Math.max(0.1, b.purlinSpacing || 1.5)) + 1);
+  const purlinSegments = purlinLines * bays;
+
+  const startY = 1.2;
+  const topL = Number(b.height || 0);
+  const topR = b.roof === "una_agua" ? Number(b.height || 0) + (b.span || 0) * slope : Number(b.height || 0);
+
+  const maxYL = Math.max(startY, topL - 0.30);
+  const maxYR = Math.max(startY, topR - 0.30);
+
+  const girtSpacing = Math.max(0.1, Number(b.girtSpacing || 1.5));
+  const girtLevelsL = Math.max(2, Math.floor((maxYL - startY) / girtSpacing) + 1);
+  const girtLevelsR = Math.max(2, Math.floor((maxYR - startY) / girtSpacing) + 1);
+
+  const girtSegments = (girtLevelsL + girtLevelsR) * bays;
+
+  return {
+    bays,
+    step,
+    planArea,
+    roofArea,
+    kgm2Plan,
+    kgm2Roof,
+    kgm2PlanPrimary,
+    kgm2PlanSecondary,
+    kgm2RoofPrimary,
+    kgm2RoofSecondary,
+    purlinLines,
+    purlinSegments,
+    girtLevelsL,
+    girtLevelsR,
+    girtSegments,
+  };
+}
+
+// -------------------- MODELO PARAMÉTRICO (JSON) --------------------
 function generateModelFromIndustrial() {
   const span = Number(qs("#ind-span")?.value || 24);
   const length = Number(qs("#ind-length")?.value || 60);
@@ -363,40 +499,6 @@ function generateModelFromIndustrial() {
   const bays = Math.max(1, frames - 1);
   const step = frames > 1 ? length / (frames - 1) : length;
 
-  const halfSpan = span / 2;
-  const rise_two_slope = halfSpan * slope; // dos aguas: subida a cumbrera desde alero
-  const rise_one_slope = span * slope; // una agua: diferencia entre aleros
-
-  // Longitudes típicas (aprox) para BOM
-  const rafterLen_two = Math.hypot(halfSpan, rise_two_slope); // cabio por faldón
-  const rafterLen_one = Math.hypot(span, rise_one_slope); // cabio único
-
-  // Alturas de alero
-  const eaveLow = height;
-  const eaveHigh = roof === "una_agua" ? height + rise_one_slope : height;
-
-  // Líneas de correas
-  let purlinLinesTotal = Math.max(2, Math.floor(span / purlinSpacing) + 1);
-
-  let purlinLinesLeft = 0;
-  let purlinLinesRight = 0;
-
-  if (roof === "dos_aguas") {
-    const perSlope = Math.max(2, Math.floor(halfSpan / purlinSpacing) + 1);
-    purlinLinesLeft = perSlope;
-    purlinLinesRight = perSlope;
-    // total “ingenieril” (cumbrera se cuenta una sola vez)
-    purlinLinesTotal = perSlope * 2 - 1;
-  }
-
-  // Niveles de largueros (por lado)
-  const startY = 1.2; // arranque típico del primer larguero
-  const topYL = Math.max(startY, eaveLow - 0.3);
-  const topYR = Math.max(startY, eaveHigh - 0.3);
-
-  const girtLevelsLeft = Math.max(2, Math.floor((topYL - startY) / girtSpacing) + 1);
-  const girtLevelsRight = Math.max(2, Math.floor((topYR - startY) / girtSpacing) + 1);
-
   state.version += 1;
 
   const model = {
@@ -409,165 +511,66 @@ function generateModelFromIndustrial() {
       length,
       height,
       frames,
-      bays,
-      step,
       slope,
       purlinSpacing,
       girtSpacing,
-
-      // DERIVADOS “BOM ULTRA”
-      eaveLow,
-      eaveHigh,
-      rise_two_slope,
-      rise_one_slope,
-      rafterLen_two,
-      rafterLen_one,
-      purlinLinesTotal,
-      purlinLinesLeft,
-      purlinLinesRight,
-      girtLevelsLeft,
-      girtLevelsRight,
+      bays,
+      step,
     },
     elements: [],
   };
 
-  // -------------------- ELEMENTOS PRINCIPALES --------------------
+  // columnas y cabios/vigas por pórtico
   for (let i = 0; i < frames; i++) {
-    model.elements.push({
-      id: `COL-L-${i + 1}`,
-      type: "columna_izq",
-      qty: 1,
-      length: eaveLow,
-      weightKg: eaveLow * 90,
-    });
-
-    model.elements.push({
-      id: `COL-R-${i + 1}`,
-      type: "columna_der",
-      qty: 1,
-      length: eaveHigh,
-      weightKg: eaveHigh * 90,
-    });
+    model.elements.push({ id: `COL-L-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
+    model.elements.push({ id: `COL-R-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
 
     if (roof === "dos_aguas") {
-      model.elements.push({
-        id: `RAF-L-${i + 1}`,
-        type: "cabio_faldon_izq",
-        qty: 1,
-        length: rafterLen_two,
-        weightKg: rafterLen_two * 40,
-      });
-      model.elements.push({
-        id: `RAF-R-${i + 1}`,
-        type: "cabio_faldon_der",
-        qty: 1,
-        length: rafterLen_two,
-        weightKg: rafterLen_two * 40,
-      });
+      const rafterLen = Math.hypot(span / 2, (span / 2) * slope);
+      model.elements.push({ id: `RAF-L-${i + 1}`, type: "cabio", qty: 1, length: rafterLen, weightKg: rafterLen * 40 });
+      model.elements.push({ id: `RAF-R-${i + 1}`, type: "cabio", qty: 1, length: rafterLen, weightKg: rafterLen * 40 });
     } else {
-      const beamLen = roof === "plana" ? span : rafterLen_one;
-      model.elements.push({
-        id: `BEAM-${i + 1}`,
-        type: roof === "plana" ? "viga_superior" : "cabio_principal",
-        qty: 1,
-        length: beamLen,
-        weightKg: beamLen * 55,
-      });
+      const beamLen = Math.hypot(span, roof === "una_agua" ? span * slope : 0);
+      model.elements.push({ id: `BEAM-${i + 1}`, type: roof === "plana" ? "viga" : "cabio", qty: 1, length: beamLen, weightKg: beamLen * 55 });
     }
   }
 
-  // -------------------- CORREAS TECHO (MIEMBROS SEGMENTADOS POR VANO) --------------------
-  if (roof === "dos_aguas") {
-    const membersLeft = purlinLinesLeft * bays;
-    const membersRight = purlinLinesRight * bays;
-
-    model.elements.push({
-      id: `PURLINS-L`,
-      type: "correa_techo_faldon_izq",
-      qty: membersLeft,
-      length: step,
-      weightKg: membersLeft * step * 8,
-    });
-
-    model.elements.push({
-      id: `PURLINS-R`,
-      type: "correa_techo_faldon_der",
-      qty: membersRight,
-      length: step,
-      weightKg: membersRight * step * 8,
-    });
-
-    // correa cumbrera segmentada (1 línea)
-    model.elements.push({
-      id: `PURLIN-RIDGE`,
-      type: "correa_cumbrera",
-      qty: bays,
-      length: step,
-      weightKg: bays * step * 8,
-    });
-
-    // aleros: 2 líneas (izq+der)
-    model.elements.push({
-      id: `PURLIN-EAVES`,
-      type: "correa_alero",
-      qty: 2 * bays,
-      length: step,
-      weightKg: 2 * bays * step * 8,
-    });
-  } else {
-    const members = purlinLinesTotal * bays;
-    model.elements.push({
-      id: `PURLINS`,
-      type: "correa_techo",
-      qty: members,
-      length: step,
-      weightKg: members * step * 8,
-    });
-
-    // aleros: 2 líneas
-    model.elements.push({
-      id: `PURLIN-EAVES`,
-      type: "correa_alero",
-      qty: 2 * bays,
-      length: step,
-      weightKg: 2 * bays * step * 8,
-    });
-  }
-
-  // -------------------- LARGUEROS PARED (MIEMBROS SEGMENTADOS POR VANO) --------------------
-  const girtMembersLeft = girtLevelsLeft * bays;
-  const girtMembersRight = girtLevelsRight * bays;
+  // correas de techo (segmentadas por vano)
+  const purlinLines = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
+  const purlinMembers = purlinLines * bays;
 
   model.elements.push({
-    id: `GIRTS-L`,
-    type: "larguero_pared_izq",
-    qty: girtMembersLeft,
+    id: `PURLINS`,
+    type: "correas",
+    qty: purlinMembers,
     length: step,
-    weightKg: girtMembersLeft * step * 6,
+    weightKg: purlinMembers * step * 8,
   });
+
+  // largueros (segmentados por vano)
+  const startY = 1.2;
+  const topL = height;
+  const topR = roof === "una_agua" ? height + span * slope : height;
+
+  const maxYL = Math.max(startY, topL - 0.30);
+  const maxYR = Math.max(startY, topR - 0.30);
+
+  const levelsL = Math.max(2, Math.floor((maxYL - startY) / Math.max(0.1, girtSpacing)) + 1);
+  const levelsR = Math.max(2, Math.floor((maxYR - startY) / Math.max(0.1, girtSpacing)) + 1);
+
+  const girtMembers = (levelsL + levelsR) * bays;
 
   model.elements.push({
-    id: `GIRTS-R`,
-    type: "larguero_pared_der",
-    qty: girtMembersRight,
+    id: `GIRTS`,
+    type: "correas_columna",
+    qty: girtMembers,
     length: step,
-    weightKg: girtMembersRight * step * 6,
+    weightKg: girtMembers * step * 6,
   });
 
-  // -------------------- “BOM ULTRA”: LÍNEAS / NIVELES COMO ÍTEMS DE INGENIERÍA --------------------
-  // (metadatos: peso 0)
-  model.elements.push({ id: `META_BAYS`, type: "bays_vanos", qty: bays, length: 0, weightKg: 0 });
-  model.elements.push({ id: `META_STEP`, type: "paso_porticos_m", qty: 1, length: step, weightKg: 0 });
-
-  model.elements.push({ id: `META_PURLIN_LINES`, type: "lineas_correas_techo", qty: purlinLinesTotal, length: 0, weightKg: 0 });
-  if (roof === "dos_aguas") {
-    model.elements.push({ id: `META_PURLIN_LINES_L`, type: "lineas_correas_faldon_izq", qty: purlinLinesLeft, length: 0, weightKg: 0 });
-    model.elements.push({ id: `META_PURLIN_LINES_R`, type: "lineas_correas_faldon_der", qty: purlinLinesRight, length: 0, weightKg: 0 });
-  }
-
-  model.elements.push({ id: `META_GIRT_LEVELS`, type: "niveles_largueros_pared", qty: Math.max(girtLevelsLeft, girtLevelsRight), length: 0, weightKg: 0 });
-  model.elements.push({ id: `META_GIRT_LEVELS_L`, type: "niveles_largueros_izq", qty: girtLevelsLeft, length: 0, weightKg: 0 });
-  model.elements.push({ id: `META_GIRT_LEVELS_R`, type: "niveles_largueros_der", qty: girtLevelsRight, length: 0, weightKg: 0 });
+  model.building.purlinLines = purlinLines;
+  model.building.girtLevelsL = levelsL;
+  model.building.girtLevelsR = levelsR;
 
   state.model = model;
 
@@ -587,13 +590,6 @@ function generateModelFromIndustrial() {
   renderParametricPreview();
 }
 
-function computeTotals(model) {
-  const elements = model?.elements || [];
-  const count = elements.reduce((acc, e) => acc + (Number(e.qty) || 0), 0);
-  const weight = elements.reduce((acc, e) => acc + (Number(e.weightKg) || 0), 0);
-  return { count, weight };
-}
-
 function refreshKPIs() {
   const { count, weight } = computeTotals(state.model);
   const ke = qs("#kpi-elements");
@@ -602,7 +598,7 @@ function refreshKPIs() {
   if (kw) kw.textContent = fmt(Math.round(weight));
 }
 
-// -------------------- BOM TABLE (ULTRA TÉCNICO) --------------------
+// -------------------- BOM TABLE (ULTRA TÉCNICO + kg/m² por grupo + m.l.) --------------------
 function renderBOMFromModel() {
   const tbody = qs("#materials-table");
   if (!tbody) return;
@@ -612,700 +608,28 @@ function renderBOMFromModel() {
     return;
   }
 
+  const b = state.model.building || {};
+  const eng = computeEngineering(state.model);
+  const totals = computeTotals(state.model);
+  const grouped = computeTotalsByGroup(state.model);
+  const mlByType = computeLinearMetersByType(state.model);
+
+  // BOM agrupado por tipo
   const map = new Map();
   for (const e of state.model.elements) {
     const k = e.type;
-    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0, length: null };
+    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0, ml: 0 };
     cur.qty += Number(e.qty) || 0;
     cur.weightKg += Number(e.weightKg) || 0;
-    if (cur.length == null && e.length != null && Number(e.length) > 0) cur.length = Number(e.length);
+    cur.ml += (Number(e.qty) || 0) * (Number(e.length) || 0);
     map.set(k, cur);
   }
 
-  const order = [
-    "bays_vanos",
-    "paso_porticos_m",
-    "lineas_correas_techo",
-    "lineas_correas_faldon_izq",
-    "lineas_correas_faldon_der",
-    "niveles_largueros_pared",
-    "niveles_largueros_izq",
-    "niveles_largueros_der",
+  const rows = [...map.values()].sort((a, b) => a.type.localeCompare(b.type));
 
-    "columna_izq",
-    "columna_der",
-    "viga_superior",
-    "cabio_principal",
-    "cabio_faldon_izq",
-    "cabio_faldon_der",
+  // Filas técnicas
+  const techRows = [
+    { name: "—", qty: "", w: "", status: "—" },
 
-    "correa_cumbrera",
-    "correa_alero",
-    "correa_techo",
-    "correa_techo_faldon_izq",
-    "correa_techo_faldon_der",
-
-    "larguero_pared_izq",
-    "larguero_pared_der",
-  ];
-
-  const rows = [...map.values()].sort((a, b) => {
-    const ia = order.indexOf(a.type);
-    const ib = order.indexOf(b.type);
-    if (ia === -1 && ib === -1) return a.type.localeCompare(b.type);
-    if (ia === -1) return 1;
-    if (ib === -1) return -1;
-    return ia - ib;
-  });
-
-  const label = (r) => {
-    const isMeta =
-      r.type.startsWith("lineas_") ||
-      r.type.startsWith("niveles_") ||
-      r.type.startsWith("bays_") ||
-      r.type.startsWith("paso_");
-
-    if (r.type === "paso_porticos_m" && r.length != null) return `paso_porticos (≈${r.length.toFixed(2)} m)`;
-    if (!isMeta && r.length != null) return `${r.type} (L≈${r.length.toFixed(2)} m)`;
-    return r.type;
-  };
-
-  tbody.innerHTML = rows
-    .map((r) => {
-      const w = Math.round(r.weightKg);
-      return `
-        <tr>
-          <td>${label(r)}</td>
-          <td>${fmt(r.qty)}</td>
-          <td>${fmt(w)}</td>
-          <td>OK</td>
-        </tr>
-      `;
-    })
-    .join("");
-}
-
-// -------------------- EXPORTS --------------------
-function exportJSON() {
-  const st = qs("#ifc-status");
-  if (!state.model) {
-    if (st) st.textContent = "No hay modelo para exportar.";
-    return;
-  }
-  downloadText(`rmm_model_v${state.version}.json`, JSON.stringify(state.model, null, 2), "application/json");
-}
-
-// BOM CSV ULTRA: incluye longitud típica
-function exportBOM() {
-  const st = qs("#ifc-status");
-  if (!state.model) {
-    if (st) st.textContent = "No hay modelo para exportar.";
-    return;
-  }
-
-  const map = new Map();
-  for (const e of state.model.elements) {
-    const k = e.type;
-    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0, lengthTypical: null };
-    cur.qty += Number(e.qty) || 0;
-    cur.weightKg += Number(e.weightKg) || 0;
-    if (cur.lengthTypical == null && e.length != null && Number(e.length) > 0) cur.lengthTypical = Number(e.length);
-    map.set(k, cur);
-  }
-
-  const rows = [...map.values()];
-  const header = "Elemento,Cantidad,Longitud_tipica_m,Peso_kg,Version\n";
-  const lines = rows
-    .map((r) => `${r.type},${r.qty},${r.lengthTypical != null ? r.lengthTypical.toFixed(3) : ""},${Math.round(r.weightKg)},${state.version}`)
-    .join("\n");
-
-  downloadText(`rmm_bom_v${state.version}.csv`, header + lines, "text/csv");
-}
-
-// -------------------- REGLAS (VALIDACIONES) --------------------
-function rule(id, name, ok, msg) {
-  return { id, name, ok: Boolean(ok), msg: msg || "" };
-}
-
-function getTypicalRanges(cover) {
-  // Rangos típicos “de anteproyecto” (verificar por cálculo + ficha)
-  if (cover === "panel") {
-    return {
-      purlin: { min: 1.2, max: 2.5 },
-      girt: { min: 1.2, max: 2.2 },
-    };
-  }
-  return {
-    purlin: { min: 0.8, max: 1.5 },
-    girt: { min: 1.0, max: 2.0 },
-  };
-}
-
-function runRules() {
-  const summary = qs("#rules-summary");
-  const list = qs("#rules-list");
-  if (!summary || !list) return;
-
-  if (!state.model) {
-    summary.textContent = "No hay modelo para validar.";
-    list.innerHTML = "";
-    return;
-  }
-
-  const b = state.model.building;
-  const results = [];
-
-  results.push(rule("R1", "Dimensiones mínimas", b.span >= 10 && b.length >= 20 && b.height >= 4, "Ancho/Largo/Altura fuera de rango mínimo."));
-  results.push(rule("R2", "Cantidad de pórticos", b.frames >= 4 && b.frames <= 24, "Cantidad de pórticos fuera de rango."));
-  results.push(rule("R3", "Pendiente razonable", b.slope >= 0.02 && b.slope <= 0.25, "Pendiente fuera de rango típico."));
-  results.push(rule("R4", "Elementos generados", (state.model.elements?.length || 0) > 0, "No se generaron elementos."));
-
-  const ranges = getTypicalRanges(b.cover);
-  const pOk = b.purlinSpacing >= ranges.purlin.min && b.purlinSpacing <= ranges.purlin.max;
-  const gOk = b.girtSpacing >= ranges.girt.min && b.girtSpacing <= ranges.girt.max;
-
-  results.push(
-    rule(
-      "R5",
-      "Separación correas techo (típica)",
-      pOk,
-      `Fuera de rango típico para "${b.cover}". Recomendado: ${ranges.purlin.min}–${ranges.purlin.max} m (verificar por cálculo y ficha técnica).`
-    )
-  );
-
-  results.push(
-    rule(
-      "R6",
-      "Separación largueros pared (típica)",
-      gOk,
-      `Fuera de rango típico para "${b.cover}". Recomendado: ${ranges.girt.min}–${ranges.girt.max} m (verificar por cálculo y ficha técnica).`
-    )
-  );
-
-  const ok = results.filter((r) => r.ok).length;
-  summary.textContent = `Validaciones: ${ok}/${results.length} OK`;
-
-  list.innerHTML = results
-    .map(
-      (r) => `
-      <div class="rule-item">
-        <strong>${r.id} — ${r.name}</strong>
-        <div>${r.ok ? "✅ OK" : "⚠️ Revisar"}</div>
-        ${r.ok ? "" : `<div class="helper">${r.msg}</div>`}
-      </div>
-    `
-    )
-    .join("");
-}
-
-// -------------------- PREVIEW 3D (Three.js) --------------------
-async function ensurePreview3D() {
-  if (state.preview.ready) return true;
-
-  const container = qs("#ifc-viewer");
-  if (!container) return false;
-
-  try {
-    // Import directo por URL completa (evita “Failed to resolve module specifier 'three'”)
-    const THREE = await import("https://unpkg.com/three@0.158.0/build/three.module.js");
-    const oc = await import("https://unpkg.com/three@0.158.0/examples/jsm/controls/OrbitControls.js");
-
-    state.preview.THREE = THREE;
-    state.preview.OrbitControls = oc.OrbitControls;
-
-    const { WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, AxesHelper, GridHelper, AmbientLight, DirectionalLight } = THREE;
-
-    container.innerHTML = "";
-
-    const renderer = new WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.setSize(container.clientWidth, container.clientHeight);
-    container.appendChild(renderer.domElement);
-
-    const scene = new Scene();
-    scene.background = new Color(0x071226);
-    scene.fog = new Fog(0x071226, 80, 500);
-
-    const camera = new PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 2000);
-    camera.position.set(35, 18, 60);
-
-    const controls = new state.preview.OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.06;
-    controls.target.set(0, 6, 20);
-
-    const grid = new GridHelper(300, 120);
-    grid.position.y = 0;
-    scene.add(grid);
-
-    const axes = new AxesHelper(8);
-    scene.add(axes);
-
-    const amb = new AmbientLight(0xffffff, 0.55);
-    scene.add(amb);
-
-    const dir = new DirectionalLight(0xffffff, 0.9);
-    dir.position.set(40, 60, 20);
-    scene.add(dir);
-
-    state.preview.renderer = renderer;
-    state.preview.scene = scene;
-    state.preview.camera = camera;
-    state.preview.controls = controls;
-
-    const ro = new ResizeObserver(() => {
-      if (!state.preview.renderer) return;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-      state.preview.renderer.setSize(w, h);
-      state.preview.camera.aspect = w / h;
-      state.preview.camera.updateProjectionMatrix();
-    });
-    ro.observe(container);
-
-    const tick = () => {
-      state.preview.animId = requestAnimationFrame(tick);
-      controls.update();
-      renderer.render(scene, camera);
-    };
-    tick();
-
-    state.preview.ready = true;
-    const vs = qs("#viewer-status");
-    if (vs) vs.textContent = "Preview activo";
-    const st = qs("#ifc-status");
-    if (st) st.textContent = "Preview 3D listo. Generá un modelo para ver estructura.";
-
-    return true;
-  } catch (err) {
-    const containerEl = qs("#ifc-viewer");
-    if (containerEl) {
-      containerEl.innerHTML = `
-        <div style="padding:16px;color:#e2e8f0;font-weight:700;">
-          No se pudo cargar Three.js desde CDN.<br/>
-          <span style="font-weight:400;color:#94a3b8;">
-            Motivo: ${String(err?.message || err)}
-          </span>
-        </div>
-      `;
-    }
-    const vs = qs("#viewer-status");
-    if (vs) vs.textContent = "Error 3D";
-    return false;
-  }
-}
-
-function resetViewer() {
-  const container = qs("#ifc-viewer");
-  if (!container) return;
-
-  if (state.preview.animId) cancelAnimationFrame(state.preview.animId);
-
-  state.preview.ready = false;
-  state.preview.THREE = null;
-  state.preview.OrbitControls = null;
-  state.preview.renderer = null;
-  state.preview.scene = null;
-  state.preview.camera = null;
-  state.preview.controls = null;
-  state.preview.animId = null;
-
-  container.innerHTML = "";
-  const vs = qs("#viewer-status");
-  if (vs) vs.textContent = "Sin archivo";
-  const st = qs("#ifc-status");
-  if (st) st.textContent = "Visor reiniciado. Preview se reinicia al generar modelo.";
-}
-
-function addMember(THREE, parent, a, b, thickness, material) {
-  const dir = new THREE.Vector3().subVectors(b, a);
-  const len = dir.length();
-  if (len <= 0.0001) return;
-
-  const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
-
-  const geom = new THREE.BoxGeometry(thickness, thickness, len);
-  const mesh = new THREE.Mesh(geom, material);
-
-  mesh.position.copy(mid);
-  const zAxis = new THREE.Vector3(0, 0, 1);
-  const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.normalize());
-  mesh.quaternion.copy(q);
-
-  parent.add(mesh);
-}
-
-function fitToGroup(THREE, camera, controls, group) {
-  const box = new THREE.Box3().setFromObject(group);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-
-  const maxDim = Math.max(size.x, size.y, size.z);
-  const dist = maxDim * 1.6;
-
-  camera.position.set(center.x + dist, center.y + dist * 0.55, center.z + dist);
-  controls.target.copy(center);
-  controls.update();
-}
-
-// Preview paramétrico: pórticos + correas techo (por vano) + largueros (por vano)
-async function renderParametricPreview() {
-  if (!state.model) return;
-
-  const ok = await ensurePreview3D();
-  if (!ok) return;
-
-  const THREE = state.preview.THREE;
-  const scene = state.preview.scene;
-
-  const old = scene.getObjectByName(state.preview.groupName);
-  if (old) scene.remove(old);
-
-  const group = new THREE.Group();
-  group.name = state.preview.groupName;
-
-  const { span, length, height, frames, roof, slope, purlinSpacing, girtSpacing } = state.model.building;
-
-  const halfSpan = span / 2;
-  const step = frames > 1 ? length / (frames - 1) : length;
-
-  const matCol = new THREE.MeshStandardMaterial({ color: 0x2563eb, metalness: 0.2, roughness: 0.6 });
-  const matRafter = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.2, roughness: 0.55 });
-  const matPurlin = new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.1, roughness: 0.7 });
-  const matGirt = new THREE.MeshStandardMaterial({ color: 0x93c5fd, metalness: 0.1, roughness: 0.75 });
-
-  const colSize = Math.max(0.12, span * 0.006);
-  const rafterSize = Math.max(0.10, span * 0.005);
-  const purlinSize = Math.max(0.06, span * 0.0035);
-  const girtSize = Math.max(0.05, span * 0.003);
-
-  function roofY(x) {
-    if (roof === "plana") return height;
-
-    if (roof === "una_agua") {
-      const t = (x + halfSpan) / span; // 0..1
-      return height + t * (span * slope);
-    }
-
-    const t = Math.abs(x) / halfSpan; // 0 centro, 1 alero
-    return height + (1 - t) * (halfSpan * slope);
-  }
-
-  // -------------------- PÓRTICOS --------------------
-  for (let i = 0; i < frames; i++) {
-    const z = i * step;
-
-    let topL = new THREE.Vector3(-halfSpan, height, z);
-    let topR = new THREE.Vector3(halfSpan, height, z);
-
-    if (roof === "una_agua") {
-      topL = new THREE.Vector3(-halfSpan, height, z);
-      topR = new THREE.Vector3(halfSpan, height + span * slope, z);
-    }
-
-    const baseL = new THREE.Vector3(-halfSpan, 0, z);
-    const baseR = new THREE.Vector3(halfSpan, 0, z);
-    addMember(THREE, group, baseL, topL, colSize, matCol);
-    addMember(THREE, group, baseR, topR, colSize, matCol);
-
-    if (roof === "plana") {
-      const a = new THREE.Vector3(-halfSpan, roofY(-halfSpan), z);
-      const b = new THREE.Vector3(halfSpan, roofY(halfSpan), z);
-      addMember(THREE, group, a, b, rafterSize, matRafter);
-    } else if (roof === "una_agua") {
-      addMember(THREE, group, topL, topR, rafterSize, matRafter);
-    } else {
-      const eaveL = new THREE.Vector3(-halfSpan, height, z);
-      const eaveR = new THREE.Vector3(halfSpan, height, z);
-      const ridge = new THREE.Vector3(0, height + halfSpan * slope, z);
-
-      addMember(THREE, group, eaveL, ridge, rafterSize, matRafter);
-      addMember(THREE, group, ridge, eaveR, rafterSize, matRafter);
-    }
-  }
-
-  // -------------------- CORREAS DE TECHO (segmentadas POR VANO) --------------------
-  const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
-
-  for (let bay = 0; bay < frames - 1; bay++) {
-    const z0 = bay * step;
-    const z1 = (bay + 1) * step;
-
-    if (roof === "dos_aguas") {
-      const halfLines = Math.max(1, Math.floor(linesAcross / 2));
-
-      for (let k = 0; k <= halfLines; k++) {
-        const x = -halfSpan + (k / halfLines) * halfSpan;
-        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), purlinSize, matPurlin);
-      }
-
-      for (let k = 1; k <= halfLines; k++) {
-        const x = (k / halfLines) * halfSpan;
-        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), purlinSize, matPurlin);
-      }
-
-      addMember(THREE, group, new THREE.Vector3(0, roofY(0), z0), new THREE.Vector3(0, roofY(0), z1), purlinSize, matPurlin);
-    } else {
-      for (let k = 0; k <= linesAcross; k++) {
-        const x = -halfSpan + (k / linesAcross) * span;
-        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), purlinSize, matPurlin);
-      }
-    }
-  }
-
-  // -------------------- LARGUEROS EN COLUMNAS (segmentados POR VANO) --------------------
-  function colTopYLeft() {
-    return height;
-  }
-  function colTopYRight() {
-    return roof === "una_agua" ? height + span * slope : height;
-  }
-
-  for (let bay = 0; bay < frames - 1; bay++) {
-    const z0 = bay * step;
-    const z1 = (bay + 1) * step;
-
-    const topL = colTopYLeft();
-    const topR = colTopYRight();
-
-    const startY = 1.2;
-    const maxYL = Math.max(startY, topL - 0.3);
-    const maxYR = Math.max(startY, topR - 0.3);
-
-    const levelsL = Math.max(2, Math.floor((maxYL - startY) / Math.max(0.1, girtSpacing)) + 1);
-    const levelsR = Math.max(2, Math.floor((maxYR - startY) / Math.max(0.1, girtSpacing)) + 1);
-
-    for (let i = 0; i < levelsL; i++) {
-      const y = Math.min(maxYL, startY + i * girtSpacing);
-      addMember(THREE, group, new THREE.Vector3(-halfSpan, y, z0), new THREE.Vector3(-halfSpan, y, z1), girtSize, matGirt);
-    }
-
-    for (let i = 0; i < levelsR; i++) {
-      const y = Math.min(maxYR, startY + i * girtSpacing);
-      addMember(THREE, group, new THREE.Vector3(halfSpan, y, z0), new THREE.Vector3(halfSpan, y, z1), girtSize, matGirt);
-    }
-  }
-
-  scene.add(group);
-
-  fitToGroup(THREE, state.preview.camera, state.preview.controls, group);
-
-  const vs = qs("#viewer-status");
-  if (vs) vs.textContent = "Preview activo";
-
-  const st = qs("#ifc-status");
-  if (st) st.textContent = `Preview 3D: ${roof} — pendiente ${(slope * 100).toFixed(1)}% — correas ${purlinSpacing.toFixed(2)}m — largueros ${girtSpacing.toFixed(2)}m`;
-}
-
-// -------------------- VERSIONADO LOCAL --------------------
-function localKey() {
-  const name = qs("#project-name")?.value?.trim() || "rmm_project";
-  return `rmm_versions_${name}`;
-}
-
-function saveLocalVersion() {
-  const ps = qs("#persistence-status");
-  if (!state.model) {
-    if (ps) ps.textContent = "No hay modelo para guardar.";
-    return;
-  }
-
-  const key = localKey();
-  const current = JSON.parse(localStorage.getItem(key) || "[]");
-  const entry = { savedAt: nowISO(), version: state.version, model: state.model };
-  current.unshift(entry);
-  localStorage.setItem(key, JSON.stringify(current.slice(0, 50)));
-
-  if (ps) ps.textContent = `Versión guardada localmente (v${state.version}).`;
-  renderLocalVersions();
-}
-
-function loadLocalVersion() {
-  const ps = qs("#persistence-status");
-  const key = localKey();
-  const current = JSON.parse(localStorage.getItem(key) || "[]");
-  if (!current.length) {
-    if (ps) ps.textContent = "No hay versiones guardadas.";
-    return;
-  }
-  const latest = current[0];
-  state.model = latest.model;
-  state.version = latest.version || state.version;
-
-  const b = state.model?.building;
-  if (b) {
-    if (qs("#ind-slope")) qs("#ind-slope").value = String(Math.round((b.slope ?? 0.1) * 100));
-    if (qs("#ind-purlin")) qs("#ind-purlin").value = String(b.purlinSpacing ?? 1.5);
-    if (qs("#ind-girt")) qs("#ind-girt").value = String(b.girtSpacing ?? 1.5);
-    if (qs("#ind-cover")) qs("#ind-cover").value = b.cover ?? "chapa";
-    if (qs("#ind-roof")) qs("#ind-roof").value = b.roof ?? "dos_aguas";
-  }
-  updateIndustrialLabels();
-
-  if (ps) ps.textContent = `Versión cargada (v${state.version}).`;
-  renderBOMFromModel();
-  refreshKPIs();
-  runRules();
-  renderLocalVersions();
-  renderParametricPreview();
-}
-
-function renderLocalVersions() {
-  const box = qs("#version-list");
-  if (!box) return;
-
-  const key = localKey();
-  const current = JSON.parse(localStorage.getItem(key) || "[]");
-
-  if (!current.length) {
-    box.innerHTML = "";
-    return;
-  }
-
-  box.innerHTML = current
-    .slice(0, 8)
-    .map(
-      (v) => `
-      <div class="rule-item">
-        <strong>v${v.version} — ${new Date(v.savedAt).toLocaleString("es-AR")}</strong>
-        <div class="button-row">
-          <button class="ghost" data-action="load-local" data-tooltip="Cargar la última versión local (demo)">Cargar última</button>
-          <button class="ghost" data-action="export-json" data-tooltip="Descargar el modelo actual en JSON">Exportar JSON</button>
-        </div>
-      </div>
-    `
-    )
-    .join("");
-}
-
-// -------------------- SUPABASE (opcional) --------------------
-let supa = null;
-
-function connectSupabase() {
-  const url = qs("#supabase-url")?.value?.trim();
-  const key = qs("#supabase-key")?.value?.trim();
-  const status = qs("#supabase-status");
-  if (!status) return;
-
-  if (!url || !key || !window.supabase) {
-    status.textContent = "Falta Supabase URL o ANON KEY.";
-    return;
-  }
-
-  try {
-    supa = window.supabase.createClient(url, key);
-    status.textContent = "Conectado. (Ahora podés guardar/cargar).";
-  } catch (err) {
-    status.textContent = `Error conectando: ${err?.message || err}`;
-  }
-}
-
-async function saveRemoteVersion() {
-  const status = qs("#supabase-status");
-  if (!status) return;
-  if (!supa) {
-    status.textContent = "No estás conectado a Supabase.";
-    return;
-  }
-  if (!state.model) {
-    status.textContent = "No hay modelo para guardar.";
-    return;
-  }
-
-  const { data: auth } = await supa.auth.getUser();
-  const userId = auth?.user?.id;
-  if (!userId) {
-    status.textContent = "Necesitás iniciar sesión real en Supabase Auth para guardar.";
-    return;
-  }
-
-  try {
-    const projectName = qs("#project-name")?.value?.trim() || "Proyecto";
-    const clientName = qs("#project-client")?.value?.trim() || null;
-
-    const payload = { owner_id: userId, project_name: projectName, client_name: clientName, bim_json: state.model };
-    const { error } = await supa.from("project_versions").insert(payload);
-
-    status.textContent = error ? `Error: ${error.message}` : "Versión guardada en Supabase.";
-  } catch (err) {
-    status.textContent = `Error: ${err?.message || err}`;
-  }
-}
-
-async function loadRemoteVersion() {
-  const status = qs("#supabase-status");
-  if (!status) return;
-  if (!supa) {
-    status.textContent = "No estás conectado a Supabase.";
-    return;
-  }
-
-  const { data: auth } = await supa.auth.getUser();
-  const userId = auth?.user?.id;
-  if (!userId) {
-    status.textContent = "Necesitás iniciar sesión real en Supabase Auth para cargar.";
-    return;
-  }
-
-  try {
-    const { data, error } = await supa.from("project_versions").select("*").order("created_at", { ascending: false }).limit(1);
-
-    if (error) {
-      status.textContent = `Error: ${error.message}`;
-      return;
-    }
-
-    if (!data?.length) {
-      status.textContent = "No hay versiones en Supabase.";
-      return;
-    }
-
-    const latest = data[0];
-    state.model = latest.bim_json;
-    state.version = state.model?.meta?.version || state.version;
-
-    const b = state.model?.building;
-    if (b) {
-      if (qs("#ind-slope")) qs("#ind-slope").value = String(Math.round((b.slope ?? 0.1) * 100));
-      if (qs("#ind-purlin")) qs("#ind-purlin").value = String(b.purlinSpacing ?? 1.5);
-      if (qs("#ind-girt")) qs("#ind-girt").value = String(b.girtSpacing ?? 1.5);
-      if (qs("#ind-cover")) qs("#ind-cover").value = b.cover ?? "chapa";
-      if (qs("#ind-roof")) qs("#ind-roof").value = b.roof ?? "dos_aguas";
-      updateIndustrialLabels();
-    }
-
-    status.textContent = "Versión cargada desde Supabase.";
-    renderBOMFromModel();
-    refreshKPIs();
-    runRules();
-    renderParametricPreview();
-  } catch (err) {
-    status.textContent = `Error: ${err?.message || err}`;
-  }
-}
-
-// -------------------- INIT --------------------
-async function init() {
-  enhanceTooltips();
-  bindModals();
-  bindScrollButtons();
-  bindAuth();
-  bindWizard();
-  bindIndustrialControls();
-
-  renderPermissions(null);
-  renderBOMFromModel();
-  refreshKPIs();
-  runRules();
-  renderLocalVersions();
-
-  await ensurePreview3D();
-  const vs = qs("#viewer-status");
-  if (vs) vs.textContent = "Preview activo";
-  const st = qs("#ifc-status");
-  if (st) st.textContent = "Preview 3D listo. Generá un modelo para ver estructura.";
-}
-
-window.addEventListener("DOMContentLoaded", () => {
-  init();
-});
+    { name: "MÉTRICAS (PESO POR SISTEMA)", qty: "", w: "", status: "INFO" },
+    { name: "Peso primaria (kg) — 
