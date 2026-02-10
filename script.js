@@ -1,4 +1,6 @@
 // script.js (ES Module) — GitHub Pages friendly (imports por URL completa)
+// ✅ Actualizado para: BOM con clases (bom-tech/bom-section/bom-divider/bom-ok/bom-warn),
+// ✅ más robusto (no rompe si faltan nodos), y con base lista para IFC Export (stub seguro).
 
 const qs = (sel, parent = document) => parent.querySelector(sel);
 const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
@@ -325,6 +327,9 @@ function bindIndustrialControls() {
     if (action === "connect-supabase") connectSupabase();
     if (action === "save-remote") saveRemoteVersion();
     if (action === "load-remote") loadRemoteVersion();
+
+    // ✅ IFC Export (nuevo)
+    if (action === "export-ifc") exportIFC();
   });
 
   const ifcInput = qs("#ifc-file");
@@ -332,6 +337,8 @@ function bindIndustrialControls() {
     ifcInput.addEventListener("change", async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
+
+      // ✅ Por ahora: placeholder (cuando integremos IFC.js lo cargamos real)
       const st = qs("#ifc-status");
       if (st) st.textContent = "Carga IFC: pendiente de integrar IFC.js empaquetado. (Preview 3D funciona igual).";
       const vs = qs("#viewer-status");
@@ -343,12 +350,9 @@ function bindIndustrialControls() {
 
 // -------------------- NUEVAS UTILIDADES BOM (ML + CLASIFICACIÓN) --------------------
 function isPrimaryType(type) {
-  // Estructura primaria = pórticos
   return type === "columna" || type === "cabio" || type === "viga";
 }
-
 function isSecondaryType(type) {
-  // Estructura secundaria = correas + largueros
   return type === "correas" || type === "correas_columna";
 }
 
@@ -361,7 +365,6 @@ function computeTotals(model) {
 
 function computeTotalsByGroup(model) {
   const elements = model?.elements || [];
-
   let wPrimary = 0;
   let wSecondary = 0;
   let wOther = 0;
@@ -373,16 +376,10 @@ function computeTotalsByGroup(model) {
     else wOther += w;
   }
 
-  return {
-    wPrimary,
-    wSecondary,
-    wOther,
-    wTotal: wPrimary + wSecondary + wOther,
-  };
+  return { wPrimary, wSecondary, wOther, wTotal: wPrimary + wSecondary + wOther };
 }
 
 function computeLinearMetersByType(model) {
-  // m.l. por tipo = sum(qty * length)
   const elements = model?.elements || [];
   const map = new Map();
 
@@ -598,7 +595,15 @@ function refreshKPIs() {
   if (kw) kw.textContent = fmt(Math.round(weight));
 }
 
-// -------------------- BOM TABLE (ULTRA TÉCNICO + kg/m² por grupo + m.l.) --------------------
+// -------------------- BOM TABLE (ULTRA TÉCNICO + clases CSS) --------------------
+function trClassForTechRow(t) {
+  if (t.kind === "divider") return "bom-divider";
+  if (t.kind === "section") return "bom-section";
+  if (t.status === "OK") return "bom-tech bom-ok";
+  if (t.status === "WARN") return "bom-tech bom-warn";
+  return "bom-tech";
+}
+
 function renderBOMFromModel() {
   const tbody = qs("#materials-table");
   if (!tbody) return;
@@ -624,58 +629,57 @@ function renderBOMFromModel() {
     cur.ml += (Number(e.qty) || 0) * (Number(e.length) || 0);
     map.set(k, cur);
   }
-
   const rows = [...map.values()].sort((a, b) => a.type.localeCompare(b.type));
 
-  // Filas técnicas
+  // Filas técnicas (con kind para clases)
   const techRows = [
-    { name: "—", qty: "", w: "", status: "—" },
+    { kind: "divider", name: "—", qty: "", w: "", status: "—" },
 
-    { name: "MÉTRICAS (PESO POR SISTEMA)", qty: "", w: "", status: "INFO" },
-    { name: "Peso primaria (kg) — pórticos", qty: "", w: fmt(Math.round(grouped.wPrimary)), status: "OK" },
-    { name: "Peso secundaria (kg) — correas+largueros", qty: "", w: fmt(Math.round(grouped.wSecondary)), status: "OK" },
-    { name: "Peso total (kg)", qty: "", w: fmt(Math.round(grouped.wTotal)), status: "OK" },
+    { kind: "section", name: "MÉTRICAS (PESO POR SISTEMA)", qty: "", w: "", status: "INFO" },
+    { kind: "tech", name: "Peso primaria (kg) — pórticos", qty: "", w: fmt(Math.round(grouped.wPrimary)), status: "OK" },
+    { kind: "tech", name: "Peso secundaria (kg) — correas+largueros", qty: "", w: fmt(Math.round(grouped.wSecondary)), status: "OK" },
+    { kind: "tech", name: "Peso total (kg)", qty: "", w: fmt(Math.round(grouped.wTotal)), status: "OK" },
 
-    { name: "—", qty: "", w: "", status: "—" },
+    { kind: "divider", name: "—", qty: "", w: "", status: "—" },
 
-    { name: "MÉTRICAS (PLANTA / CUBIERTA)", qty: "", w: "", status: "INFO" },
-    { name: "Área en planta (m²)", qty: fmt2(eng.planArea), w: "", status: "OK" },
-    { name: "Área de cubierta aprox (m²)", qty: fmt2(eng.roofArea), w: "", status: "OK" },
+    { kind: "section", name: "MÉTRICAS (PLANTA / CUBIERTA)", qty: "", w: "", status: "INFO" },
+    { kind: "tech", name: "Área en planta (m²)", qty: fmt2(eng.planArea), w: "", status: "OK" },
+    { kind: "tech", name: "Área de cubierta aprox (m²)", qty: fmt2(eng.roofArea), w: "", status: "OK" },
 
-    { name: "kg/m² TOTAL (planta)", qty: "", w: fmt2(eng.kgm2Plan), status: "OK" },
-    { name: "kg/m² PRIMARIA (planta)", qty: "", w: fmt2(eng.kgm2PlanPrimary), status: "OK" },
-    { name: "kg/m² SECUNDARIA (planta)", qty: "", w: fmt2(eng.kgm2PlanSecondary), status: "OK" },
+    { kind: "tech", name: "kg/m² TOTAL (planta)", qty: "", w: fmt2(eng.kgm2Plan), status: "OK" },
+    { kind: "tech", name: "kg/m² PRIMARIA (planta)", qty: "", w: fmt2(eng.kgm2PlanPrimary), status: "OK" },
+    { kind: "tech", name: "kg/m² SECUNDARIA (planta)", qty: "", w: fmt2(eng.kgm2PlanSecondary), status: "OK" },
 
-    { name: "kg/m² TOTAL (cubierta)", qty: "", w: fmt2(eng.kgm2Roof), status: "OK" },
-    { name: "kg/m² PRIMARIA (cubierta)", qty: "", w: fmt2(eng.kgm2RoofPrimary), status: "OK" },
-    { name: "kg/m² SECUNDARIA (cubierta)", qty: "", w: fmt2(eng.kgm2RoofSecondary), status: "OK" },
+    { kind: "tech", name: "kg/m² TOTAL (cubierta)", qty: "", w: fmt2(eng.kgm2Roof), status: "OK" },
+    { kind: "tech", name: "kg/m² PRIMARIA (cubierta)", qty: "", w: fmt2(eng.kgm2RoofPrimary), status: "OK" },
+    { kind: "tech", name: "kg/m² SECUNDARIA (cubierta)", qty: "", w: fmt2(eng.kgm2RoofSecondary), status: "OK" },
 
-    { name: "—", qty: "", w: "", status: "—" },
+    { kind: "divider", name: "—", qty: "", w: "", status: "—" },
 
-    { name: "MÉTRICAS (MODULACIÓN)", qty: "", w: "", status: "INFO" },
-    { name: "Pórticos (un)", qty: fmt(b.frames || 0), w: "", status: "OK" },
-    { name: "Vanos (frames-1)", qty: fmt(eng.bays), w: "", status: "OK" },
-    { name: "Paso entre pórticos (m)", qty: fmt2(eng.step), w: "", status: "OK" },
+    { kind: "section", name: "MÉTRICAS (MODULACIÓN)", qty: "", w: "", status: "INFO" },
+    { kind: "tech", name: "Pórticos (un)", qty: fmt(b.frames || 0), w: "", status: "OK" },
+    { kind: "tech", name: "Vanos (frames-1)", qty: fmt(eng.bays), w: "", status: "OK" },
+    { kind: "tech", name: "Paso entre pórticos (m)", qty: fmt2(eng.step), w: "", status: "OK" },
 
-    { name: "—", qty: "", w: "", status: "—" },
+    { kind: "divider", name: "—", qty: "", w: "", status: "—" },
 
-    { name: "CORREAS DE TECHO (ULTRA TÉCNICO)", qty: "", w: "", status: "INFO" },
-    { name: "Separación correas (m)", qty: fmt2(b.purlinSpacing || 0), w: "", status: "OK" },
-    { name: "Cantidad líneas correas (across)", qty: fmt(eng.purlinLines), w: "", status: "OK" },
-    { name: "Miembros correas segmentados (líneas × vanos)", qty: fmt(eng.purlinSegments), w: "", status: "OK" },
+    { kind: "section", name: "CORREAS DE TECHO (ULTRA TÉCNICO)", qty: "", w: "", status: "INFO" },
+    { kind: "tech", name: "Separación correas (m)", qty: fmt2(b.purlinSpacing || 0), w: "", status: "OK" },
+    { kind: "tech", name: "Cantidad líneas correas (across)", qty: fmt(eng.purlinLines), w: "", status: "OK" },
+    { kind: "tech", name: "Miembros correas segmentados (líneas × vanos)", qty: fmt(eng.purlinSegments), w: "", status: "OK" },
 
-    { name: "—", qty: "", w: "", status: "—" },
+    { kind: "divider", name: "—", qty: "", w: "", status: "—" },
 
-    { name: "LARGUEROS DE PARED (ULTRA TÉCNICO)", qty: "", w: "", status: "INFO" },
-    { name: "Separación largueros (m)", qty: fmt2(b.girtSpacing || 0), w: "", status: "OK" },
-    { name: "Niveles largueros (izq)", qty: fmt(eng.girtLevelsL), w: "", status: "OK" },
-    { name: "Niveles largueros (der)", qty: fmt(eng.girtLevelsR), w: "", status: "OK" },
-    { name: "Miembros largueros segmentados ((niveles izq+der) × vanos)", qty: fmt(eng.girtSegments), w: "", status: "OK" },
+    { kind: "section", name: "LARGUEROS DE PARED (ULTRA TÉCNICO)", qty: "", w: "", status: "INFO" },
+    { kind: "tech", name: "Separación largueros (m)", qty: fmt2(b.girtSpacing || 0), w: "", status: "OK" },
+    { kind: "tech", name: "Niveles largueros (izq)", qty: fmt(eng.girtLevelsL), w: "", status: "OK" },
+    { kind: "tech", name: "Niveles largueros (der)", qty: fmt(eng.girtLevelsR), w: "", status: "OK" },
+    { kind: "tech", name: "Miembros largueros segmentados ((niveles izq+der) × vanos)", qty: fmt(eng.girtSegments), w: "", status: "OK" },
 
-    { name: "—", qty: "", w: "", status: "—" },
+    { kind: "divider", name: "—", qty: "", w: "", status: "—" },
 
-    { name: "METROS LINEALES (m.l.) POR TIPO", qty: "", w: "", status: "INFO" },
-    ...mlByType.map((r) => ({ name: `m.l. ${r.type}`, qty: fmt2(r.ml), w: "", status: "OK" })),
+    { kind: "section", name: "METROS LINEALES (m.l.) POR TIPO", qty: "", w: "", status: "INFO" },
+    ...mlByType.map((r) => ({ kind: "tech", name: `m.l. ${r.type}`, qty: fmt2(r.ml), w: "", status: "OK" })),
   ];
 
   const bomHtml = rows
@@ -693,12 +697,14 @@ function renderBOMFromModel() {
 
   const techHtml = techRows
     .map((t) => {
+      const cls = trClassForTechRow(t);
+      const label = t.kind === "divider" ? "—" : t.status ?? "";
       return `
-      <tr>
+      <tr class="${cls}">
         <td>${t.name}</td>
         <td>${t.qty ?? ""}</td>
         <td>${t.w ?? ""}</td>
-        <td>${t.status ?? ""}</td>
+        <td>${label}</td>
       </tr>
     `;
     })
@@ -737,7 +743,6 @@ function exportBOM() {
   const grouped = computeTotalsByGroup(state.model);
   const mlByType = computeLinearMetersByType(state.model);
 
-  // BOM por tipo
   const map = new Map();
   for (const e of state.model.elements) {
     const k = e.type;
@@ -785,6 +790,37 @@ function exportBOM() {
     mlByType.map((r) => `ml_${r.type},,,${r.ml.toFixed(2)},\n`).join("");
 
   downloadText(`rmm_bom_ultra_v${state.version}.csv`, header + lines + extra, "text/csv");
+}
+
+// -------------------- IFC EXPORT (stub seguro listo para integrar) --------------------
+async function exportIFC() {
+  const st = qs("#ifc-status");
+  if (!state.model) {
+    if (st) st.textContent = "No hay modelo para exportar a IFC.";
+    return;
+  }
+
+  // ✅ En el próximo paso vamos a integrar un export real a IFC.
+  // Por ahora: genera un "IFC placeholder" para probar flujo + descarga.
+  // (No es un IFC válido — solo permite verificar que el botón/descarga funcione sin romper nada)
+  const header = [
+    "ISO-10303-21;",
+    "HEADER;",
+    "FILE_DESCRIPTION(('RMM STRUCTURES IFC PLACEHOLDER'),'2;1');",
+    `FILE_NAME('rmm_model_v${state.version}.ifc','${nowISO()}',('RMM'),('RMM STRUCTURES'),'ChatGPT','RMM','');`,
+    "FILE_SCHEMA(('IFC4'));",
+    "ENDSEC;",
+    "DATA;",
+    "ENDSEC;",
+    "END-ISO-10303-21;",
+  ].join("\n");
+
+  downloadText(`rmm_model_v${state.version}.ifc`, header, "application/octet-stream");
+
+  if (st) {
+    st.textContent =
+      "Export IFC: placeholder descargado (siguiente paso: IFC real con entidad/properties/geometry).";
+  }
 }
 
 // -------------------- REGLAS (VALIDACIONES) --------------------
@@ -1021,7 +1057,6 @@ function fitToGroup(THREE, camera, controls, group) {
   controls.update();
 }
 
-// Preview paramétrico: pórticos + correas techo (por vano) + largueros (por vano)
 async function renderParametricPreview() {
   if (!state.model) return;
 
@@ -1056,11 +1091,11 @@ async function renderParametricPreview() {
     if (roof === "plana") return height;
 
     if (roof === "una_agua") {
-      const t = (x + halfSpan) / span; // 0..1
+      const t = (x + halfSpan) / span;
       return height + t * (span * slope);
     }
 
-    const t = Math.abs(x) / halfSpan; // 0 centro, 1 alero
+    const t = Math.abs(x) / halfSpan;
     return height + (1 - t) * (halfSpan * slope);
   }
 
@@ -1241,8 +1276,8 @@ function renderLocalVersions() {
       <div class="rule-item">
         <strong>v${v.version} — ${new Date(v.savedAt).toLocaleString("es-AR")}</strong>
         <div class="button-row">
-          <button class="ghost" data-action="load-local" data-tooltip="Cargar la última versión local (demo)">Cargar última</button>
-          <button class="ghost" data-action="export-json" data-tooltip="Descargar el modelo actual en JSON">Exportar JSON</button>
+          <button class="ghost" data-action="load-local" data-tooltip="Cargar la última versión local (demo)" type="button">Cargar última</button>
+          <button class="ghost" data-action="export-json" data-tooltip="Descargar el modelo actual en JSON" type="button">Exportar JSON</button>
         </div>
       </div>
     `
