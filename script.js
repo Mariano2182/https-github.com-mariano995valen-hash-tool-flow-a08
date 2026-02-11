@@ -27,6 +27,7 @@ const state = {
     controls: null,
     animId: null,
     groupName: "RMM_PREVIEW",
+    resizeObs: null,
   },
 };
 
@@ -63,13 +64,8 @@ function nowISO() {
 }
 
 // -------------------- FASTENERS (BULONES) --------------------
-// Catálogo simple (kg por unidad). Ajustable según norma/proveedor.
-// M16x(40-60) ronda ~0.11–0.16 kg; dejamos 0.14 kg como valor medio.
 const FASTENER_CATALOG = {
   bulon_m16: { label: "Bulón hex M16", kg_each: 0.14 },
-  // opcional si luego querés desglosar:
-  // tuerca_m16: { label: "Tuerca M16", kg_each: 0.03 },
-  // arandela_m16: { label: "Arandela M16", kg_each: 0.01 },
 };
 
 // Calcula bulones M16 para el modelo paramétrico (estimación)
@@ -80,40 +76,26 @@ function estimateBoltsM16(model) {
   const frames = Number(b.frames || 0);
   const bays = Math.max(1, frames - 1);
 
-  // Reutilizamos métricas
   const eng = computeEngineering(model);
 
-  // -----------------------------
-  // Supuestos típicos (ajustables)
-  // -----------------------------
-  const boltsBasePlatePerColumn = 4;       // placa base: 4 anclajes M16 por columna
-  const boltsKneePerSide = 6;              // rodilla (columna-cabio): 6 bulones por lado
-  const boltsRidgePerFrame = b.roof === "dos_aguas" ? 6 : 0; // cumbrera: 6 bulones (solo dos aguas)
+  const boltsBasePlatePerColumn = 4; // anclajes base
+  const boltsKneePerSide = 6; // rodilla por lado
+  const boltsRidgePerFrame = b.roof === "dos_aguas" ? 6 : 0;
 
-  const boltsPerPurlinSupport = 2;         // correas a cabio/viga: 2 bulones por apoyo
-  const boltsPerGirtSupport = 2;           // larguero a columna: 2 bulones por apoyo
+  const boltsPerPurlinSupport = 2;
+  const boltsPerGirtSupport = 2;
 
-  // Columnas: 2 por pórtico
   const columns = frames * 2;
-
-  // Anclajes
   const basePlateBolts = columns * boltsBasePlatePerColumn;
 
-  // Rodillas: 2 por pórtico (izq+der)
   const kneeJoints = frames * 2;
   const kneeBolts = kneeJoints * boltsKneePerSide;
 
-  // Cumbrera (solo dos aguas): 1 por pórtico
   const ridgeBolts = frames * boltsRidgePerFrame;
 
-  // Correas:
-  // purlinSegments = líneas * vanos
-  // Cada segmento apoya en 2 pórticos => 2 apoyos
-  // Cada apoyo: 2 bulones => 4 por segmento
   const purlinSegments = Number(eng.purlinSegments || 0);
   const purlinBolts = purlinSegments * 2 * boltsPerPurlinSupport;
 
-  // Largueros:
   const girtSegments = Number(eng.girtSegments || 0);
   const girtBolts = girtSegments * 2 * boltsPerGirtSupport;
 
@@ -132,7 +114,6 @@ function estimateBoltsM16(model) {
   return { qty: total, breakdown };
 }
 
-// Inserta (o reemplaza) la línea de bulones en model.elements
 function upsertBoltsIntoModel(model) {
   if (!model?.elements) return;
 
@@ -140,7 +121,6 @@ function upsertBoltsIntoModel(model) {
   const spec = FASTENER_CATALOG.bulon_m16;
   const weightKg = qty * (spec?.kg_each || 0);
 
-  // borrar si ya existía
   model.elements = model.elements.filter((e) => e.type !== "bulon_m16");
 
   model.elements.push({
@@ -183,7 +163,6 @@ function bindModals() {
 
     const action = btn.getAttribute("data-action");
     if (action === "open-demo") openModal("demo-modal");
-    if (action === "close-modal" && btn.closest(".modal")) closeModal(btn.closest(".modal"));
   });
 
   qsa("[data-close]").forEach((btn) => {
@@ -364,7 +343,6 @@ function setIndustrialInputsFromWizard(data) {
   if (length) length.value = clamp(Number(data.largo || 60), 20, 200);
   if (height) height.value = clamp(Number(data.altura || 8), 4, 16);
   if (frames) frames.value = clamp(Number(data.porticos || 10), 4, 24);
-
   if (cover && data.cubierta) cover.value = data.cubierta;
 
   updateIndustrialLabels();
@@ -423,9 +401,7 @@ function bindIndustrialControls() {
     if (action === "connect-supabase") connectSupabase();
     if (action === "save-remote") saveRemoteVersion();
     if (action === "load-remote") loadRemoteVersion();
-
-    // ✅ IFC Export (REAL)
-    if (action === "export-ifc") exportIFC();
+    if (action === "export-ifc") exportIFC(); // ✅ IFC Export REAL
   });
 
   const ifcInput = qs("#ifc-file");
@@ -434,7 +410,6 @@ function bindIndustrialControls() {
       const file = e.target.files?.[0];
       if (!file) return;
 
-      // ✅ Por ahora: loader placeholder (cuando integremos IFC.js lo cargamos real)
       const st = qs("#ifc-status");
       if (st) st.textContent = "Carga IFC: pendiente de integrar IFC.js empaquetado. (Preview 3D funciona igual).";
       const vs = qs("#viewer-status");
@@ -546,8 +521,8 @@ function computeEngineering(model) {
   const topL = Number(b.height || 0);
   const topR = b.roof === "una_agua" ? Number(b.height || 0) + (b.span || 0) * slope : Number(b.height || 0);
 
-  const maxYL = Math.max(startY, topL - 0.30);
-  const maxYR = Math.max(startY, topR - 0.30);
+  const maxYL = Math.max(startY, topL - 0.3);
+  const maxYR = Math.max(startY, topR - 0.3);
 
   const girtSpacing = Math.max(0.1, Number(b.girtSpacing || 1.5));
   const girtLevelsL = Math.max(2, Math.floor((maxYL - startY) / girtSpacing) + 1);
@@ -613,7 +588,6 @@ function generateModelFromIndustrial() {
     elements: [],
   };
 
-  // columnas y cabios/vigas por pórtico (BOM lógico)
   for (let i = 0; i < frames; i++) {
     model.elements.push({ id: `COL-L-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
     model.elements.push({ id: `COL-R-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
@@ -634,7 +608,6 @@ function generateModelFromIndustrial() {
     }
   }
 
-  // correas de techo (segmentadas por vano)
   const purlinLines = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
   const purlinMembers = purlinLines * bays;
 
@@ -646,13 +619,12 @@ function generateModelFromIndustrial() {
     weightKg: purlinMembers * step * 8,
   });
 
-  // largueros (segmentados por vano)
   const startY = 1.2;
   const topL = height;
   const topR = roof === "una_agua" ? height + span * slope : height;
 
-  const maxYL = Math.max(startY, topL - 0.30);
-  const maxYR = Math.max(startY, topR - 0.30);
+  const maxYL = Math.max(startY, topL - 0.3);
+  const maxYR = Math.max(startY, topR - 0.3);
 
   const levelsL = Math.max(2, Math.floor((maxYL - startY) / Math.max(0.1, girtSpacing)) + 1);
   const levelsR = Math.max(2, Math.floor((maxYR - startY) / Math.max(0.1, girtSpacing)) + 1);
@@ -671,7 +643,6 @@ function generateModelFromIndustrial() {
   model.building.girtLevelsL = levelsL;
   model.building.girtLevelsR = levelsR;
 
-  // ✅ agrega bulones M16 al BOM (estimación)
   upsertBoltsIntoModel(model);
 
   state.model = model;
@@ -723,7 +694,6 @@ function renderBOMFromModel() {
   const grouped = computeTotalsByGroup(state.model);
   const mlByType = computeLinearMetersByType(state.model);
 
-  // BOM agrupado por tipo
   const map = new Map();
   for (const e of state.model.elements) {
     const k = e.type;
@@ -735,7 +705,6 @@ function renderBOMFromModel() {
   }
   const rows = [...map.values()].sort((a, bb) => a.type.localeCompare(bb.type));
 
-  // Filas técnicas (con kind para clases)
   const techRows = [
     { kind: "divider", name: "—", qty: "", w: "", status: "—" },
 
@@ -788,7 +757,7 @@ function renderBOMFromModel() {
 
   const bomHtml = rows
     .map((r) => {
-      const displayName = FASTENER_CATALOG[r.type]?.label || r.type; // ✅ muestra nombre lindo
+      const displayName = FASTENER_CATALOG[r.type]?.label || r.type;
       return `
       <tr>
         <td>${displayName}</td>
@@ -825,7 +794,7 @@ function renderBOMFromModel() {
   }
 }
 
-// -------------------- EXPORTS (CSV incluye kg/m² por grupo + m.l.) --------------------
+// -------------------- EXPORTS --------------------
 function exportJSON() {
   const st = qs("#ifc-status");
   if (!state.model) {
@@ -862,7 +831,7 @@ function exportBOM() {
   const header = "Elemento,Cantidad,Peso_kg,MetrosLineales_m,Version\n";
   const lines = rows
     .map((r) => {
-      const name = FASTENER_CATALOG[r.type]?.label || r.type; // ✅ nombre lindo en CSV también
+      const name = FASTENER_CATALOG[r.type]?.label || r.type;
       return `${name},${r.qty},${Math.round(r.weightKg)},${r.ml.toFixed(2)},${state.version}`;
     })
     .join("\n");
@@ -892,7 +861,7 @@ function exportBOM() {
     `purlin_spacing_m,${fmt2(b.purlinSpacing || 0)},,,\n` +
     `purlin_lines,${eng.purlinLines},,,\n` +
     `purlin_segments,${eng.purlinSegments},,,\n` +
-        `girt_spacing_m,${fmt2(b.girtSpacing || 0)},,,\n` +
+    `girt_spacing_m,${fmt2(b.girtSpacing || 0)},,,\n` +
     `girt_levels_left,${eng.girtLevelsL},,,\n` +
     `girt_levels_right,${eng.girtLevelsR},,,\n` +
     `girt_segments,${eng.girtSegments},,,\n` +
@@ -910,14 +879,8 @@ function exportBOM() {
 function v3(x = 0, y = 0, z = 0) {
   return { x, y, z };
 }
-function vAdd(a, b) {
-  return v3(a.x + b.x, a.y + b.y, a.z + b.z);
-}
 function vSub(a, b) {
   return v3(a.x - b.x, a.y - b.y, a.z - b.z);
-}
-function vMul(a, s) {
-  return v3(a.x * s, a.y * s, a.z * s);
 }
 function vLen(a) {
   return Math.hypot(a.x, a.y, a.z);
@@ -955,13 +918,10 @@ function ifcGuidFromBytes(bytes16) {
   }
   return chars.join("");
 }
-
 function ifcGuid() {
   const bytes = new Uint8Array(16);
   if (window.crypto?.getRandomValues) window.crypto.getRandomValues(bytes);
-  else {
-    for (let i = 0; i < 16; i++) bytes[i] = (Math.random() * 256) | 0;
-  }
+  else for (let i = 0; i < 16; i++) bytes[i] = (Math.random() * 256) | 0;
   return ifcGuidFromBytes(bytes);
 }
 
@@ -975,9 +935,6 @@ function ifcNum(n) {
   const x = Number(n);
   if (!Number.isFinite(x)) return "0.";
   return `${x.toFixed(6).replace(/0+$/, "").replace(/\.$/, ".")}`;
-}
-function ifcBool(b) {
-  return b ? ".T." : ".F.";
 }
 function ifcRef(id) {
   return `#${id}`;
@@ -998,43 +955,33 @@ function buildSegmentsFromModel(model) {
   if (!b) return [];
 
   const { span, length, height, frames, roof, slope, purlinSpacing, girtSpacing } = b;
-
   const halfSpan = span / 2;
   const step = frames > 1 ? length / (frames - 1) : length;
 
   const colSize = Math.max(0.12, span * 0.006);
-  const rafterSize = Math.max(0.10, span * 0.005);
+  const rafterSize = Math.max(0.1, span * 0.005);
   const purlinSize = Math.max(0.06, span * 0.0035);
   const girtSize = Math.max(0.05, span * 0.003);
 
   function roofY(x) {
     if (roof === "plana") return height;
-
     if (roof === "una_agua") {
       const t = (x + halfSpan) / span;
       return height + t * (span * slope);
     }
-
     const t = Math.abs(x) / halfSpan;
     return height + (1 - t) * (halfSpan * slope);
   }
 
   const segs = [];
-
   function pushSeg(kind, name, a, c, size) {
     const dir = vSub(c, a);
     const len = vLen(dir);
     if (len <= 1e-6) return;
-    segs.push({
-      kind,
-      name,
-      a,
-      b: c,
-      size,
-      length: len,
-    });
+    segs.push({ kind, name, a, b: c, size, length: len });
   }
 
+  // pórticos
   for (let i = 0; i < frames; i++) {
     const z = i * step;
 
@@ -1042,7 +989,6 @@ function buildSegmentsFromModel(model) {
     let topR = v3(halfSpan, height, z);
 
     if (roof === "una_agua") {
-      topL = v3(-halfSpan, height, z);
       topR = v3(halfSpan, height + span * slope, z);
     }
 
@@ -1068,8 +1014,8 @@ function buildSegmentsFromModel(model) {
     }
   }
 
+  // correas
   const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
-
   for (let bay = 0; bay < frames - 1; bay++) {
     const z0 = bay * step;
     const z1 = (bay + 1) * step;
@@ -1094,6 +1040,7 @@ function buildSegmentsFromModel(model) {
     }
   }
 
+  // largueros
   for (let bay = 0; bay < frames - 1; bay++) {
     const z0 = bay * step;
     const z1 = (bay + 1) * step;
@@ -1102,8 +1049,8 @@ function buildSegmentsFromModel(model) {
     const topR = roof === "una_agua" ? height + span * slope : height;
 
     const startY = 1.2;
-    const maxYL = Math.max(startY, topL - 0.30);
-    const maxYR = Math.max(startY, topR - 0.30);
+    const maxYL = Math.max(startY, topL - 0.3);
+    const maxYR = Math.max(startY, topR - 0.3);
 
     const levelsL = Math.max(2, Math.floor((maxYL - startY) / Math.max(0.1, girtSpacing)) + 1);
     const levelsR = Math.max(2, Math.floor((maxYR - startY) / Math.max(0.1, girtSpacing)) + 1);
@@ -1129,12 +1076,10 @@ class IFCWriter {
     this.lines = [];
     this.id = 0;
   }
-
   nextId() {
     this.id += 1;
     return this.id;
   }
-
   add(entity, args) {
     const id = this.nextId();
     this.lines.push(`#${id}=${entity}(${args});`);
@@ -1163,12 +1108,16 @@ class IFCWriter {
     const org = this.add("IFCORGANIZATION", `${ifcStr("")},${ifcStr("RMM")},${ifcStr("")},$,$`);
     const pAndO = this.add("IFCPERSONANDORGANIZATION", `${ifcRef(person)},${ifcRef(org)},$`);
     const app = this.add("IFCAPPLICATION", `${ifcRef(org)},${ifcStr("1.0")},${ifcStr("RMM Web")},${ifcStr("RMM_WEB")}`);
-    const ownerHistory = this.add("IFCOWNERHISTORY", `${ifcRef(pAndO)},${ifcRef(app)},$,.ADDED.,$,$,$,${ifcNum(Date.now() / 1000)}`);
+    const ownerHistory = this.add(
+      "IFCOWNERHISTORY",
+      `${ifcRef(pAndO)},${ifcRef(app)},$,.ADDED.,$,$,$,${ifcNum(Date.now() / 1000)}`
+    );
 
     const uLen = this.add("IFCSIUNIT", `$,.LENGTHUNIT.,.METRE.,$`);
     const uArea = this.add("IFCSIUNIT", `$,.AREAUNIT.,.SQUARE_METRE.,$`);
     const uVol = this.add("IFCSIUNIT", `$,.VOLUMEUNIT.,.CUBIC_METRE.,$`);
-    const uMass = this.add("IFCSIUNIT", `$,.MASSUNIT.,.GRAM.,.KILO.`);
+    // ✅ FIX: unidad masa correcta y sin romper sintaxis
+    const uMass = this.add("IFCSIUNIT", `$,.MASSUNIT.,.KILOGRAM.,$`);
     const unitAssignment = this.add("IFCUNITASSIGNMENT", ifcList([ifcRef(uLen), ifcRef(uArea), ifcRef(uVol), ifcRef(uMass)]));
 
     const originPt = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
@@ -1210,9 +1159,18 @@ class IFCWriter {
       `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(storeyName)},${ifcStr("")},$,$,${ifcRef(stPlacement)},$,$,.ELEMENT.,${ifcNum(0)}`
     );
 
-    this.add("IFCRELAGGREGATES", `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,${ifcRef(project)},${ifcList([ifcRef(site)])}`.replace(/\s+/g, " "));
-    this.add("IFCRELAGGREGATES", `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,${ifcRef(site)},${ifcList([ifcRef(building)])}`.replace(/\s+/g, " "));
-    this.add("IFCRELAGGREGATES", `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,${ifcRef(building)},${ifcList([ifcRef(storey)])}`.replace(/\s+/g, " "));
+    this.add(
+      "IFCRELAGGREGATES",
+      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,${ifcRef(project)},${ifcList([ifcRef(site)])}`
+    );
+    this.add(
+      "IFCRELAGGREGATES",
+      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,${ifcRef(site)},${ifcList([ifcRef(building)])}`
+    );
+    this.add(
+      "IFCRELAGGREGATES",
+      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,${ifcRef(building)},${ifcList([ifcRef(storey)])}`
+    );
 
     return { ownerHistory, context, project, site, building, storey, storeyPlacement: stPlacement };
   }
@@ -1235,7 +1193,7 @@ class IFCWriter {
     const origin2d = this.add("IFCCARTESIANPOINT", `(0.,0.)`);
     const prof = this.add(
       "IFCRECTANGLEPROFILEDEF",
-      `.AREA.,${ifcStr("")},$,${ifcRef(origin2d)},${ifcNum(width)},${ifcNum(height)}`.replace(/\s+/g, " ")
+      `.AREA.,${ifcStr("")},$,${ifcRef(origin2d)},${ifcNum(width)},${ifcNum(height)}`
     );
 
     const solidPosPt = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
@@ -1244,13 +1202,16 @@ class IFCWriter {
     const extrudeDir = this.add("IFCDIRECTION", ifcDir(v3(0, 0, 1)));
     const solid = this.add("IFCEXTRUDEDAREASOLID", `${ifcRef(prof)},${ifcRef(solidPos)},${ifcRef(extrudeDir)},${ifcNum(depth)}`);
 
-    const bodyRep = this.add("IFCSHAPEREPRESENTATION", `${ifcRef(context)},${ifcStr("Body")},${ifcStr("SweptSolid")},${ifcList([ifcRef(solid)])}`);
+    const bodyRep = this.add(
+      "IFCSHAPEREPRESENTATION",
+      `${ifcRef(context)},${ifcStr("Body")},${ifcStr("SweptSolid")},${ifcList([ifcRef(solid)])}`
+    );
 
     const pds = this.add("IFCPRODUCTDEFINITIONSHAPE", `$,$,${ifcList([ifcRef(bodyRep)])}`);
     return pds;
   }
 
-  addLinearProduct({ ownerHistory, storey, storeyPlacement, context, kind, name, start, end, size }) {
+  addLinearProduct({ ownerHistory, storeyPlacement, context, kind, name, start, end, size }) {
     const dir = vSub(end, start);
     const len = vLen(dir);
     const dirUnit = vNorm(dir);
@@ -1263,15 +1224,12 @@ class IFCWriter {
     const shape = this.makeExtrudedRectShape({ context, width: w, height: h, depth: len });
 
     const ent = kind === "COLUMN" ? "IFCCOLUMN" : kind === "BEAM" ? "IFCBEAM" : "IFCMEMBER";
-    const prod = this.add(
-      ent,
-      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(name)},${ifcStr("")},$,${ifcRef(placement)},${ifcRef(shape)},$,$`.replace(/\s+/g, " ")
-    );
+    const prod = this.add(ent, `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(name)},${ifcStr("")},$,${ifcRef(placement)},${ifcRef(shape)},$,$`);
 
     return prod;
   }
 }
-// -------------------- IFC EXPORT (REAL IFC4) --------------------
+
 async function exportIFC() {
   const st = qs("#ifc-status");
   if (!state.model) {
@@ -1281,9 +1239,8 @@ async function exportIFC() {
 
   try {
     const projectName = (qs("#project-name")?.value?.trim() || "RMM Project") + ` v${state.version}`;
-    const buildingName = qs("#project-client")?.value?.trim()
-      ? `Nave — ${qs("#project-client").value.trim()}`
-      : "Nave Industrial";
+    const client = qs("#project-client")?.value?.trim() || "";
+    const buildingName = client ? `Nave — ${client}` : "Nave Industrial";
     const fileName = `rmm_model_v${state.version}.ifc`;
 
     const writer = new IFCWriter({ projectName, schema: "IFC4" });
@@ -1295,7 +1252,6 @@ async function exportIFC() {
     for (const s of segs) {
       const pid = writer.addLinearProduct({
         ownerHistory: base.ownerHistory,
-        storey: base.storey,
         storeyPlacement: base.storeyPlacement,
         context: base.context,
         kind: s.kind,
@@ -1310,7 +1266,7 @@ async function exportIFC() {
     if (prodIds.length) {
       writer.add(
         "IFCRELCONTAINEDINSPATIALSTRUCTURE",
-        `${ifcStr(ifcGuid())},${ifcRef(base.ownerHistory)},${ifcStr("Containment")},$,${ifcList(prodIds.map((id) => ifcRef(id)))},${ifcRef(base.storey)}`.replace(/\s+/g, " ")
+        `${ifcStr(ifcGuid())},${ifcRef(base.ownerHistory)},${ifcStr("Containment")},$,${ifcList(prodIds.map((id) => ifcRef(id)))},${ifcRef(base.storey)}`
       );
     }
 
@@ -1321,10 +1277,7 @@ async function exportIFC() {
     ].join("\n");
 
     downloadText(fileName, ifcText, "application/octet-stream");
-
-    if (st) {
-      st.textContent = `IFC4 exportado (REAL): ${prodIds.length} elementos — archivo ${fileName}`;
-    }
+    if (st) st.textContent = `IFC4 exportado (REAL): ${prodIds.length} elementos — archivo ${fileName}`;
   } catch (err) {
     if (st) st.textContent = `Error exportando IFC: ${err?.message || err}`;
   }
@@ -1337,15 +1290,9 @@ function rule(id, name, ok, msg) {
 
 function getTypicalRanges(cover) {
   if (cover === "panel") {
-    return {
-      purlin: { min: 1.2, max: 2.5 },
-      girt: { min: 1.2, max: 2.2 },
-    };
+    return { purlin: { min: 1.2, max: 2.5 }, girt: { min: 1.2, max: 2.2 } };
   }
-  return {
-    purlin: { min: 0.8, max: 1.5 },
-    girt: { min: 1.0, max: 2.0 },
-  };
+  return { purlin: { min: 0.8, max: 1.5 }, girt: { min: 1.0, max: 2.0 } };
 }
 
 function runRules() {
@@ -1371,23 +1318,8 @@ function runRules() {
   const pOk = b.purlinSpacing >= ranges.purlin.min && b.purlinSpacing <= ranges.purlin.max;
   const gOk = b.girtSpacing >= ranges.girt.min && b.girtSpacing <= ranges.girt.max;
 
-  results.push(
-    rule(
-      "R5",
-      "Separación correas techo (típica)",
-      pOk,
-      `Fuera de rango típico para "${b.cover}". Recomendado: ${ranges.purlin.min}–${ranges.purlin.max} m (verificar por cálculo y ficha técnica).`
-    )
-  );
-
-  results.push(
-    rule(
-      "R6",
-      "Separación largueros pared (típica)",
-      gOk,
-      `Fuera de rango típico para "${b.cover}". Recomendado: ${ranges.girt.min}–${ranges.girt.max} m (verificar por cálculo y ficha técnica).`
-    )
-  );
+  results.push(rule("R5", "Separación correas techo (típica)", pOk, `Fuera de rango típico para "${b.cover}". Recomendado: ${ranges.purlin.min}–${ranges.purlin.max} m (verificar por cálculo y ficha técnica).`));
+  results.push(rule("R6", "Separación largueros pared (típica)", gOk, `Fuera de rango típico para "${b.cover}". Recomendado: ${ranges.girt.min}–${ranges.girt.max} m (verificar por cálculo y ficha técnica).`));
 
   const ok = results.filter((r) => r.ok).length;
   summary.textContent = `Validaciones: ${ok}/${results.length} OK`;
@@ -1419,30 +1351,23 @@ async function ensurePreview3D() {
     state.preview.THREE = THREE;
     state.preview.OrbitControls = oc.OrbitControls;
 
-    const {
-      WebGLRenderer,
-      Scene,
-      PerspectiveCamera,
-      Color,
-      Fog,
-      AxesHelper,
-      GridHelper,
-      AmbientLight,
-      DirectionalLight,
-    } = THREE;
+    const { WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, AxesHelper, GridHelper, AmbientLight, DirectionalLight } = THREE;
 
     container.innerHTML = "";
 
     const renderer = new WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.setSize(container.clientWidth, container.clientHeight);
+
+    const w0 = container.clientWidth || Math.max(320, Math.floor(window.innerWidth * 0.6));
+    const h0 = container.clientHeight || 520; // ✅ FIX: evita height 0 => canvas invisible
+    renderer.setSize(w0, h0);
     container.appendChild(renderer.domElement);
 
     const scene = new Scene();
     scene.background = new Color(0x071226);
     scene.fog = new Fog(0x071226, 80, 500);
 
-    const camera = new PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 2000);
+    const camera = new PerspectiveCamera(55, w0 / h0, 0.1, 2000);
     camera.position.set(35, 18, 60);
 
     const controls = new state.preview.OrbitControls(camera, renderer.domElement);
@@ -1457,8 +1382,7 @@ async function ensurePreview3D() {
     const axes = new AxesHelper(8);
     scene.add(axes);
 
-    const amb = new AmbientLight(0xffffff, 0.55);
-    scene.add(amb);
+    scene.add(new AmbientLight(0xffffff, 0.55));
 
     const dir = new DirectionalLight(0xffffff, 0.9);
     dir.position.set(40, 60, 20);
@@ -1469,15 +1393,21 @@ async function ensurePreview3D() {
     state.preview.camera = camera;
     state.preview.controls = controls;
 
+    if (state.preview.resizeObs) {
+      try { state.preview.resizeObs.disconnect(); } catch {}
+      state.preview.resizeObs = null;
+    }
+
     const ro = new ResizeObserver(() => {
-      if (!state.preview.renderer) return;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
+      if (!state.preview.renderer || !state.preview.camera) return;
+      const w = container.clientWidth || w0;
+      const h = container.clientHeight || h0;
       state.preview.renderer.setSize(w, h);
       state.preview.camera.aspect = w / h;
       state.preview.camera.updateProjectionMatrix();
     });
     ro.observe(container);
+    state.preview.resizeObs = ro;
 
     const tick = () => {
       state.preview.animId = requestAnimationFrame(tick);
@@ -1516,6 +1446,9 @@ function resetViewer() {
   if (!container) return;
 
   if (state.preview.animId) cancelAnimationFrame(state.preview.animId);
+  if (state.preview.resizeObs) {
+    try { state.preview.resizeObs.disconnect(); } catch {}
+  }
 
   state.preview.ready = false;
   state.preview.THREE = null;
@@ -1525,6 +1458,7 @@ function resetViewer() {
   state.preview.camera = null;
   state.preview.controls = null;
   state.preview.animId = null;
+  state.preview.resizeObs = null;
 
   container.innerHTML = "";
   const vs = qs("#viewer-status");
@@ -1540,10 +1474,12 @@ function addMember(THREE, parent, a, b, thickness, material) {
 
   const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
 
+  // largo en eje Z
   const geom = new THREE.BoxGeometry(thickness, thickness, len);
   const mesh = new THREE.Mesh(geom, material);
 
   mesh.position.copy(mid);
+
   const zAxis = new THREE.Vector3(0, 0, 1);
   const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.normalize());
   mesh.quaternion.copy(q);
@@ -1557,7 +1493,7 @@ function fitToGroup(THREE, camera, controls, group) {
   const center = box.getCenter(new THREE.Vector3());
 
   const maxDim = Math.max(size.x, size.y, size.z);
-  const dist = maxDim * 1.6;
+  const dist = maxDim * 1.6 || 40;
 
   camera.position.set(center.x + dist, center.y + dist * 0.55, center.z + dist);
   controls.target.copy(center);
@@ -1590,7 +1526,7 @@ async function renderParametricPreview() {
   const matGirt = new THREE.MeshStandardMaterial({ color: 0x93c5fd, metalness: 0.1, roughness: 0.75 });
 
   const colSize = Math.max(0.12, span * 0.006);
-  const rafterSize = Math.max(0.10, span * 0.005);
+  const rafterSize = Math.max(0.1, span * 0.005);
   const purlinSize = Math.max(0.06, span * 0.0035);
   const girtSize = Math.max(0.05, span * 0.003);
 
@@ -1613,7 +1549,6 @@ async function renderParametricPreview() {
     let topR = new THREE.Vector3(halfSpan, height, z);
 
     if (roof === "una_agua") {
-      topL = new THREE.Vector3(-halfSpan, height, z);
       topR = new THREE.Vector3(halfSpan, height + span * slope, z);
     }
 
@@ -1623,9 +1558,7 @@ async function renderParametricPreview() {
     addMember(THREE, group, baseR, topR, colSize, matCol);
 
     if (roof === "plana") {
-      const a = new THREE.Vector3(-halfSpan, roofY(-halfSpan), z);
-      const b2 = new THREE.Vector3(halfSpan, roofY(halfSpan), z);
-      addMember(THREE, group, a, b2, rafterSize, matRafter);
+      addMember(THREE, group, new THREE.Vector3(-halfSpan, roofY(-halfSpan), z), new THREE.Vector3(halfSpan, roofY(halfSpan), z), rafterSize, matRafter);
     } else if (roof === "una_agua") {
       addMember(THREE, group, topL, topR, rafterSize, matRafter);
     } else {
@@ -1674,8 +1607,8 @@ async function renderParametricPreview() {
     const topR = roof === "una_agua" ? height + span * slope : height;
 
     const startY = 1.2;
-    const maxYL = Math.max(startY, topL - 0.30);
-    const maxYR = Math.max(startY, topR - 0.30);
+    const maxYL = Math.max(startY, topL - 0.3);
+    const maxYR = Math.max(startY, topR - 0.3);
 
     const levelsL = Math.max(2, Math.floor((maxYL - startY) / Math.max(0.1, girtSpacing)) + 1);
     const levelsR = Math.max(2, Math.floor((maxYR - startY) / Math.max(0.1, girtSpacing)) + 1);
@@ -1692,7 +1625,6 @@ async function renderParametricPreview() {
   }
 
   scene.add(group);
-
   fitToGroup(THREE, state.preview.camera, state.preview.controls, group);
 
   const vs = qs("#viewer-status");
@@ -1859,11 +1791,7 @@ async function loadRemoteVersion() {
   }
 
   try {
-    const { data, error } = await supa
-      .from("project_versions")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(1);
+    const { data, error } = await supa.from("project_versions").select("*").order("created_at", { ascending: false }).limit(1);
 
     if (error) {
       status.textContent = `Error: ${error.message}`;
