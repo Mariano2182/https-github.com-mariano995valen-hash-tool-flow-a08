@@ -1,6 +1,11 @@
 // script.js (ES Module) — GitHub Pages friendly (imports por URL completa)
-// ✅ Actualizado para: BOM con clases (bom-tech/bom-section/bom-divider/bom-ok/bom-warn),
-// ✅ más robusto (no rompe si faltan nodos), y con base lista para IFC Export (stub seguro).
+// ✅ Actualizado para: BOM con clases (bom-tech/bom-section/bom-divider/bom-ok/bom-warn)
+// ✅ más robusto (no rompe si faltan nodos)
+// ✅ IFC Export REAL (IFC4) — geometría paramétrica (extrusiones) + jerarquía Proyecto/Sitio/Edificio/Nivel
+//    - Columnas -> IfcColumn
+//    - Vigas/Cabios -> IfcBeam
+//    - Correas/Largueros -> IfcMember
+//    - Representación: IfcExtrudedAreaSolid (rectángulo) orientado por placement (eje local Z = dirección de la barra)
 
 const qs = (sel, parent = document) => parent.querySelector(sel);
 const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
@@ -328,7 +333,7 @@ function bindIndustrialControls() {
     if (action === "save-remote") saveRemoteVersion();
     if (action === "load-remote") loadRemoteVersion();
 
-    // ✅ IFC Export (nuevo)
+    // ✅ IFC Export (REAL)
     if (action === "export-ifc") exportIFC();
   });
 
@@ -338,7 +343,7 @@ function bindIndustrialControls() {
       const file = e.target.files?.[0];
       if (!file) return;
 
-      // ✅ Por ahora: placeholder (cuando integremos IFC.js lo cargamos real)
+      // ✅ Por ahora: loader placeholder (cuando integremos IFC.js lo cargamos real)
       const st = qs("#ifc-status");
       if (st) st.textContent = "Carga IFC: pendiente de integrar IFC.js empaquetado. (Preview 3D funciona igual).";
       const vs = qs("#viewer-status");
@@ -517,7 +522,7 @@ function generateModelFromIndustrial() {
     elements: [],
   };
 
-  // columnas y cabios/vigas por pórtico
+  // columnas y cabios/vigas por pórtico (BOM lógico)
   for (let i = 0; i < frames; i++) {
     model.elements.push({ id: `COL-L-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
     model.elements.push({ id: `COL-R-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
@@ -528,7 +533,13 @@ function generateModelFromIndustrial() {
       model.elements.push({ id: `RAF-R-${i + 1}`, type: "cabio", qty: 1, length: rafterLen, weightKg: rafterLen * 40 });
     } else {
       const beamLen = Math.hypot(span, roof === "una_agua" ? span * slope : 0);
-      model.elements.push({ id: `BEAM-${i + 1}`, type: roof === "plana" ? "viga" : "cabio", qty: 1, length: beamLen, weightKg: beamLen * 55 });
+      model.elements.push({
+        id: `BEAM-${i + 1}`,
+        type: roof === "plana" ? "viga" : "cabio",
+        qty: 1,
+        length: beamLen,
+        weightKg: beamLen * 55,
+      });
     }
   }
 
@@ -615,7 +626,6 @@ function renderBOMFromModel() {
 
   const b = state.model.building || {};
   const eng = computeEngineering(state.model);
-  const totals = computeTotals(state.model);
   const grouped = computeTotalsByGroup(state.model);
   const mlByType = computeLinearMetersByType(state.model);
 
@@ -629,7 +639,7 @@ function renderBOMFromModel() {
     cur.ml += (Number(e.qty) || 0) * (Number(e.length) || 0);
     map.set(k, cur);
   }
-  const rows = [...map.values()].sort((a, b) => a.type.localeCompare(b.type));
+  const rows = [...map.values()].sort((a, bb) => a.type.localeCompare(bb.type));
 
   // Filas técnicas (con kind para clases)
   const techRows = [
@@ -792,7 +802,422 @@ function exportBOM() {
   downloadText(`rmm_bom_ultra_v${state.version}.csv`, header + lines + extra, "text/csv");
 }
 
-// -------------------- IFC EXPORT (stub seguro listo para integrar) --------------------
+// ============================================================================
+// ============================== IFC EXPORT REAL ==============================
+// ============================================================================
+
+// ---- Math helpers (sin libs) ----
+function v3(x = 0, y = 0, z = 0) {
+  return { x, y, z };
+}
+function vAdd(a, b) {
+  return v3(a.x + b.x, a.y + b.y, a.z + b.z);
+}
+function vSub(a, b) {
+  return v3(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+function vMul(a, s) {
+  return v3(a.x * s, a.y * s, a.z * s);
+}
+function vLen(a) {
+  return Math.hypot(a.x, a.y, a.z);
+}
+function vNorm(a) {
+  const l = vLen(a);
+  return l > 1e-12 ? v3(a.x / l, a.y / l, a.z / l) : v3(0, 0, 1);
+}
+function vDot(a, b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+function vCross(a, b) {
+  return v3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
+}
+
+// ---- IFC GUID (22 chars) ----
+// Implementación estándar (base64-like de IFC) usando 16 bytes aleatorios.
+const IFC64 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$";
+function ifcGuidFromBytes(bytes16) {
+  const b = bytes16;
+  const toInt = (i) => (b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3];
+
+  const parts = [toInt(0) >>> 0, toInt(4) >>> 0, toInt(8) >>> 0, toInt(12) >>> 0]; // 4x uint32
+
+  // Convert to 22 chars
+  let res = "";
+  let num = BigInt(parts[0]);
+  num = (num << 32n) + BigInt(parts[1]);
+  num = (num << 32n) + BigInt(parts[2]);
+  num = (num << 32n) + BigInt(parts[3]);
+
+  // 128 bits -> 22 base64-ish chars (since 64^22 ~ 2^132)
+  // We encode from MSB to LSB.
+  const mask = 63n;
+  const chars = [];
+  for (let i = 0; i < 22; i++) {
+    const shift = BigInt((21 - i) * 6);
+    const idx = Number((num >> shift) & mask);
+    chars.push(IFC64[idx]);
+  }
+  res = chars.join("");
+  return res;
+}
+
+function ifcGuid() {
+  const bytes = new Uint8Array(16);
+  if (window.crypto?.getRandomValues) window.crypto.getRandomValues(bytes);
+  else {
+    // fallback (no crypto): pseudo
+    for (let i = 0; i < 16; i++) bytes[i] = (Math.random() * 256) | 0;
+  }
+  return ifcGuidFromBytes(bytes);
+}
+
+// ---- STEP helpers ----
+function ifcStr(s) {
+  if (s == null) return "$";
+  const t = String(s).replace(/'/g, "''");
+  return `'${t}'`;
+}
+function ifcNum(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "0.";
+  // IFC suele usar "1." en lugar de "1"
+  return `${x.toFixed(6).replace(/0+$/, "").replace(/\.$/, ".")}`;
+}
+function ifcBool(b) {
+  return b ? ".T." : ".F.";
+}
+function ifcRef(id) {
+  return `#${id}`;
+}
+function ifcList(arr) {
+  return `(${arr.join(",")})`;
+}
+function ifcDir(v) {
+  return `(${ifcNum(v.x)},${ifcNum(v.y)},${ifcNum(v.z)})`;
+}
+function ifcPt(v) {
+  return `(${ifcNum(v.x)},${ifcNum(v.y)},${ifcNum(v.z)})`;
+}
+
+// ---- Segmentación geométrica desde el modelo paramétrico ----
+// Devuelve barras "reales" con start/end, tipo IFC, y sección (ancho/alto) aproximada.
+function buildSegmentsFromModel(model) {
+  const b = model?.building;
+  if (!b) return [];
+
+  const { span, length, height, frames, roof, slope, purlinSpacing, girtSpacing } = b;
+
+  const halfSpan = span / 2;
+  const step = frames > 1 ? length / (frames - 1) : length;
+
+  // Secciones aproximadas (m) - mismas que preview (pero sin THREE)
+  const colSize = Math.max(0.12, span * 0.006);
+  const rafterSize = Math.max(0.10, span * 0.005);
+  const purlinSize = Math.max(0.06, span * 0.0035);
+  const girtSize = Math.max(0.05, span * 0.003);
+
+  function roofY(x) {
+    if (roof === "plana") return height;
+
+    if (roof === "una_agua") {
+      const t = (x + halfSpan) / span;
+      return height + t * (span * slope);
+    }
+
+    // dos_aguas
+    const t = Math.abs(x) / halfSpan;
+    return height + (1 - t) * (halfSpan * slope);
+  }
+
+  const segs = [];
+
+  // Helper to push segment
+  function pushSeg(kind, name, a, c, size) {
+    const dir = vSub(c, a);
+    const len = vLen(dir);
+    if (len <= 1e-6) return;
+    segs.push({
+      kind, // "COLUMN" | "BEAM" | "MEMBER"
+      name,
+      a,
+      b: c,
+      size, // sección cuadrada aprox (m)
+      length: len,
+    });
+  }
+
+  // PÓRTICOS
+  for (let i = 0; i < frames; i++) {
+    const z = i * step;
+
+    let topL = v3(-halfSpan, height, z);
+    let topR = v3(halfSpan, height, z);
+
+    if (roof === "una_agua") {
+      topL = v3(-halfSpan, height, z);
+      topR = v3(halfSpan, height + span * slope, z);
+    }
+
+    const baseL = v3(-halfSpan, 0, z);
+    const baseR = v3(halfSpan, 0, z);
+
+    pushSeg("COLUMN", `COL-L-${i + 1}`, baseL, topL, colSize);
+    pushSeg("COLUMN", `COL-R-${i + 1}`, baseR, topR, colSize);
+
+    if (roof === "plana") {
+      const a = v3(-halfSpan, roofY(-halfSpan), z);
+      const c = v3(halfSpan, roofY(halfSpan), z);
+      pushSeg("BEAM", `BEAM-${i + 1}`, a, c, rafterSize);
+    } else if (roof === "una_agua") {
+      pushSeg("BEAM", `RAF-${i + 1}`, topL, topR, rafterSize);
+    } else {
+      // dos aguas
+      const eaveL = v3(-halfSpan, height, z);
+      const eaveR = v3(halfSpan, height, z);
+      const ridge = v3(0, height + halfSpan * slope, z);
+
+      pushSeg("BEAM", `RAF-L-${i + 1}`, eaveL, ridge, rafterSize);
+      pushSeg("BEAM", `RAF-R-${i + 1}`, ridge, eaveR, rafterSize);
+    }
+  }
+
+  // CORREAS TECHO (por vano)
+  const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
+
+  for (let bay = 0; bay < frames - 1; bay++) {
+    const z0 = bay * step;
+    const z1 = (bay + 1) * step;
+
+    if (roof === "dos_aguas") {
+      const halfLines = Math.max(1, Math.floor(linesAcross / 2));
+
+      // lado izquierdo + cumbrera + derecho
+      for (let k = 0; k <= halfLines; k++) {
+        const x = -halfSpan + (k / halfLines) * halfSpan;
+        pushSeg("MEMBER", `PURLIN-L-${bay + 1}-${k + 1}`, v3(x, roofY(x), z0), v3(x, roofY(x), z1), purlinSize);
+      }
+      for (let k = 1; k <= halfLines; k++) {
+        const x = (k / halfLines) * halfSpan;
+        pushSeg("MEMBER", `PURLIN-R-${bay + 1}-${k + 1}`, v3(x, roofY(x), z0), v3(x, roofY(x), z1), purlinSize);
+      }
+      pushSeg("MEMBER", `PURLIN-RIDGE-${bay + 1}`, v3(0, roofY(0), z0), v3(0, roofY(0), z1), purlinSize);
+    } else {
+      for (let k = 0; k <= linesAcross; k++) {
+        const x = -halfSpan + (k / linesAcross) * span;
+        pushSeg("MEMBER", `PURLIN-${bay + 1}-${k + 1}`, v3(x, roofY(x), z0), v3(x, roofY(x), z1), purlinSize);
+      }
+    }
+  }
+
+  // LARGUEROS (por vano)
+  for (let bay = 0; bay < frames - 1; bay++) {
+    const z0 = bay * step;
+    const z1 = (bay + 1) * step;
+
+    const topL = height;
+    const topR = roof === "una_agua" ? height + span * slope : height;
+
+    const startY = 1.2;
+    const maxYL = Math.max(startY, topL - 0.30);
+    const maxYR = Math.max(startY, topR - 0.30);
+
+    const levelsL = Math.max(2, Math.floor((maxYL - startY) / Math.max(0.1, girtSpacing)) + 1);
+    const levelsR = Math.max(2, Math.floor((maxYR - startY) / Math.max(0.1, girtSpacing)) + 1);
+
+    for (let i = 0; i < levelsL; i++) {
+      const y = Math.min(maxYL, startY + i * girtSpacing);
+      pushSeg("MEMBER", `GIRT-L-${bay + 1}-${i + 1}`, v3(-halfSpan, y, z0), v3(-halfSpan, y, z1), girtSize);
+    }
+    for (let i = 0; i < levelsR; i++) {
+      const y = Math.min(maxYR, startY + i * girtSpacing);
+      pushSeg("MEMBER", `GIRT-R-${bay + 1}-${i + 1}`, v3(halfSpan, y, z0), v3(halfSpan, y, z1), girtSize);
+    }
+  }
+
+  return segs;
+}
+
+// ---- IFC Writer minimal (IFC4) ----
+class IFCWriter {
+  constructor({ projectName = "RMM Project", schema = "IFC4" } = {}) {
+    this.schema = schema;
+    this.projectName = projectName;
+    this.lines = [];
+    this.id = 0;
+  }
+
+  nextId() {
+    this.id += 1;
+    return this.id;
+  }
+
+  add(entity, args) {
+    const id = this.nextId();
+    this.lines.push(`#${id}=${entity}(${args});`);
+    return id;
+  }
+
+  header({ fileName = "model.ifc", author = "RMM", org = "RMM", app = "RMM Web", time = nowISO() } = {}) {
+    const ts = time;
+    return [
+      "ISO-10303-21;",
+      "HEADER;",
+      `FILE_DESCRIPTION((${ifcStr("ViewDefinition [CoordinationView]")}),${ifcStr("2;1")});`,
+      `FILE_NAME(${ifcStr(fileName)},${ifcStr(ts)},(${ifcStr(author)}),(${ifcStr(org)}),${ifcStr(app)},${ifcStr("RMM")},${ifcStr("")});`,
+      `FILE_SCHEMA((${ifcStr(this.schema)}));`,
+      "ENDSEC;",
+      "DATA;",
+    ].join("\n");
+  }
+
+  footer() {
+    return ["ENDSEC;", "END-ISO-10303-21;"].join("\n");
+  }
+
+  // Crea una base IFC coherente + devuelve ids raíz (project, site, building, storey, context, ownerHistory)
+  buildBase({ buildingName = "Nave Industrial", storeyName = "Nivel 0" } = {}) {
+    // PERSON / ORG / APP
+    const person = this.add("IFCPERSON", `${ifcStr("")},${ifcStr("")},${ifcStr("RMM")},$,$,$,$,$`);
+    const org = this.add("IFCORGANIZATION", `${ifcStr("")},${ifcStr("RMM")},${ifcStr("")},$,$`);
+    const pAndO = this.add("IFCPERSONANDORGANIZATION", `${ifcRef(person)},${ifcRef(org)},$`);
+    const app = this.add("IFCAPPLICATION", `${ifcRef(org)},${ifcStr("1.0")},${ifcStr("RMM Web")},${ifcStr("RMM_WEB")}`);
+    const ownerHistory = this.add("IFCOWNERHISTORY", `${ifcRef(pAndO)},${ifcRef(app)},$,.ADDED.,$,$,$,${ifcNum(Date.now() / 1000)}`);
+
+    // UNITS
+    const uLen = this.add("IFCSIUNIT", `$,.LENGTHUNIT.,.METRE.,$`);
+    const uArea = this.add("IFCSIUNIT", `$,.AREAUNIT.,.SQUARE_METRE.,$`);
+    const uVol = this.add("IFCSIUNIT", `$,.VOLUMEUNIT.,.CUBIC_METRE.,$`);
+    const uMass = this.add("IFCSIUNIT", `$,.MASSUNIT.,.GRAM.,.KILO.`); // kilogram
+    const unitAssignment = this.add("IFCUNITASSIGNMENT", ifcList([ifcRef(uLen), ifcRef(uArea), ifcRef(uVol), ifcRef(uMass)]));
+
+    // GEOMETRY CONTEXT
+    const originPt = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
+    const wcs = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(originPt)},$,$`);
+    const context = this.add(
+      "IFCGEOMETRICREPRESENTATIONCONTEXT",
+      `${ifcStr("Model")},${ifcStr("3D")},3,${ifcNum(1e-5)},${ifcRef(wcs)},$`
+    );
+
+    // PROJECT
+    const project = this.add(
+      "IFCPROJECT",
+      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(this.projectName)},${ifcStr("")},$,$,$,${ifcList([ifcRef(context)])},${ifcRef(unitAssignment)}`
+    );
+
+    // SITE / BUILDING / STOREY placements
+    const siteLoc = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
+    const siteAxis = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(siteLoc)},$,$`);
+    const sitePlacement = this.add("IFCLOCALPLACEMENT", `$,${ifcRef(siteAxis)}`);
+
+    const bldLoc = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
+    const bldAxis = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(bldLoc)},$,$`);
+    const bldPlacement = this.add("IFCLOCALPLACEMENT", `${ifcRef(sitePlacement)},${ifcRef(bldAxis)}`);
+
+    const stLoc = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
+    const stAxis = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(stLoc)},$,$`);
+    const stPlacement = this.add("IFCLOCALPLACEMENT", `${ifcRef(bldPlacement)},${ifcRef(stAxis)}`);
+
+    const site = this.add(
+      "IFCSITE",
+      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Site")},${ifcStr("")},$,$,${ifcRef(sitePlacement)},$,$,.ELEMENT.,$,$,$,$,$`
+    );
+
+    const building = this.add(
+      "IFCBUILDING",
+      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(buildingName)},${ifcStr("")},$,$,${ifcRef(bldPlacement)},$,$,.ELEMENT.,$,$,$`
+    );
+
+    const storey = this.add(
+      "IFCBUILDINGSTOREY",
+      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(storeyName)},${ifcStr("")},$,$,${ifcRef(stPlacement)},$,$,.ELEMENT.,${ifcNum(0)}`
+    );
+
+    // AGGREGATES: Project->Site->Building->Storey
+    this.add("IFCRELAGGREGATES", `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,
+      ${ifcRef(project)},${ifcList([ifcRef(site)])}`.replace(/\s+/g, " "));
+    this.add("IFCRELAGGREGATES", `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,
+      ${ifcRef(site)},${ifcList([ifcRef(building)])}`.replace(/\s+/g, " "));
+    this.add("IFCRELAGGREGATES", `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,
+      ${ifcRef(building)},${ifcList([ifcRef(storey)])}`.replace(/\s+/g, " "));
+
+    return { ownerHistory, context, project, site, building, storey, storeyPlacement: stPlacement };
+  }
+
+  // Crea placement orientado para una barra:
+  // - LocalPlacement relativo al storeyPlacement
+  // - Axis2Placement3D con Axis = dir (local Z) y RefDirection = xDir
+  makeMemberPlacement({ storeyPlacement, start, dirUnit }) {
+    // elegir refDir no paralelo al eje
+    const z = vNorm(dirUnit);
+    const up = Math.abs(vDot(z, v3(0, 0, 1))) > 0.95 ? v3(0, 1, 0) : v3(0, 0, 1);
+    const x = vNorm(vCross(up, z));
+    const xFinal = vLen(x) < 1e-8 ? v3(1, 0, 0) : x;
+
+    const pt = this.add("IFCCARTESIANPOINT", ifcPt(start));
+    const axisDir = this.add("IFCDIRECTION", ifcDir(z));
+    const refDir = this.add("IFCDIRECTION", ifcDir(xFinal));
+    const ax = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(pt)},${ifcRef(axisDir)},${ifcRef(refDir)}`);
+    const lp = this.add("IFCLOCALPLACEMENT", `${ifcRef(storeyPlacement)},${ifcRef(ax)}`);
+    return lp;
+  }
+
+  // Shape: extrusión rectangular a lo largo de +Z local
+  makeExtrudedRectShape({ context, width, height, depth }) {
+    const origin2d = this.add("IFCCARTESIANPOINT", `(0.,0.)`); // IfcCartesianPoint (2D) en STEP suele ser (x,y)
+    const prof = this.add(
+      "IFCRECTANGLEPROFILEDEF",
+      `.AREA.,${ifcStr("")},$,
+      ${ifcRef(origin2d)},${ifcNum(width)},${ifcNum(height)}`.replace(/\s+/g, " ")
+    );
+
+    const solidPosPt = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
+    const solidPos = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(solidPosPt)},$,$`);
+
+    const extrudeDir = this.add("IFCDIRECTION", ifcDir(v3(0, 0, 1)));
+    const solid = this.add(
+      "IFCEXTRUDEDAREASOLID",
+      `${ifcRef(prof)},${ifcRef(solidPos)},${ifcRef(extrudeDir)},${ifcNum(depth)}`
+    );
+
+    const bodyRep = this.add(
+      "IFCSHAPEREPRESENTATION",
+      `${ifcRef(context)},${ifcStr("Body")},${ifcStr("SweptSolid")},${ifcList([ifcRef(solid)])}`
+    );
+
+    const pds = this.add("IFCPRODUCTDEFINITIONSHAPE", `$,$,${ifcList([ifcRef(bodyRep)])}`);
+    return pds;
+  }
+
+  // Producto (IfcColumn/IfcBeam/IfcMember) + lo devuelve (id)
+  addLinearProduct({ ownerHistory, storey, storeyPlacement, context, kind, name, start, end, size }) {
+    const dir = vSub(end, start);
+    const len = vLen(dir);
+    const dirUnit = vNorm(dir);
+
+    // placement en start, con eje Z local apuntando a end
+    const placement = this.makeMemberPlacement({ storeyPlacement, start, dirUnit });
+
+    // sección cuadrada aprox
+    const w = Math.max(0.02, Number(size) || 0.08);
+    const h = w;
+
+    const shape = this.makeExtrudedRectShape({ context, width: w, height: h, depth: len });
+
+    const ent = kind === "COLUMN" ? "IFCCOLUMN" : kind === "BEAM" ? "IFCBEAM" : "IFCMEMBER";
+    const prod = this.add(
+      ent,
+      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(name)},${ifcStr("")},$,
+      ${ifcRef(placement)},${ifcRef(shape)},$,$`.replace(/\s+/g, " ")
+    );
+
+    // Containment (lo hacemos luego en lote, pero soporta también individual)
+    // Devolvemos prodId para luego relContained
+    return prod;
+  }
+}
+
+// -------------------- IFC EXPORT (REAL IFC4) --------------------
 async function exportIFC() {
   const st = qs("#ifc-status");
   if (!state.model) {
@@ -800,26 +1225,57 @@ async function exportIFC() {
     return;
   }
 
-  // ✅ En el próximo paso vamos a integrar un export real a IFC.
-  // Por ahora: genera un "IFC placeholder" para probar flujo + descarga.
-  // (No es un IFC válido — solo permite verificar que el botón/descarga funcione sin romper nada)
-  const header = [
-    "ISO-10303-21;",
-    "HEADER;",
-    "FILE_DESCRIPTION(('RMM STRUCTURES IFC PLACEHOLDER'),'2;1');",
-    `FILE_NAME('rmm_model_v${state.version}.ifc','${nowISO()}',('RMM'),('RMM STRUCTURES'),'ChatGPT','RMM','');`,
-    "FILE_SCHEMA(('IFC4'));",
-    "ENDSEC;",
-    "DATA;",
-    "ENDSEC;",
-    "END-ISO-10303-21;",
-  ].join("\n");
+  try {
+    const projectName = (qs("#project-name")?.value?.trim() || "RMM Project") + ` v${state.version}`;
+    const buildingName = qs("#project-client")?.value?.trim()
+      ? `Nave — ${qs("#project-client").value.trim()}`
+      : "Nave Industrial";
+    const fileName = `rmm_model_v${state.version}.ifc`;
 
-  downloadText(`rmm_model_v${state.version}.ifc`, header, "application/octet-stream");
+    const writer = new IFCWriter({ projectName, schema: "IFC4" });
+    const base = writer.buildBase({ buildingName, storeyName: "Nivel 0" });
 
-  if (st) {
-    st.textContent =
-      "Export IFC: placeholder descargado (siguiente paso: IFC real con entidad/properties/geometry).";
+    const segs = buildSegmentsFromModel(state.model);
+
+    // Crear productos
+    const prodIds = [];
+    for (const s of segs) {
+      const pid = writer.addLinearProduct({
+        ownerHistory: base.ownerHistory,
+        storey: base.storey,
+        storeyPlacement: base.storeyPlacement,
+        context: base.context,
+        kind: s.kind,
+        name: s.name,
+        start: s.a,
+        end: s.b,
+        size: s.size,
+      });
+      prodIds.push(pid);
+    }
+
+    // Relación de contención al storey (en lote)
+    if (prodIds.length) {
+      writer.add(
+        "IFCRELCONTAINEDINSPATIALSTRUCTURE",
+        `${ifcStr(ifcGuid())},${ifcRef(base.ownerHistory)},${ifcStr("Containment")},$,
+        ${ifcList(prodIds.map((id) => ifcRef(id)))},${ifcRef(base.storey)}`.replace(/\s+/g, " ")
+      );
+    }
+
+    const ifcText = [
+      writer.header({ fileName, author: "RMM", org: "RMM", app: "RMM Web", time: nowISO() }),
+      writer.lines.join("\n"),
+      writer.footer(),
+    ].join("\n");
+
+    downloadText(fileName, ifcText, "application/octet-stream");
+
+    if (st) {
+      st.textContent = `IFC4 exportado (REAL): ${prodIds.length} elementos — archivo ${fileName}`;
+    }
+  } catch (err) {
+    if (st) st.textContent = `Error exportando IFC: ${err?.message || err}`;
   }
 }
 
