@@ -892,9 +892,9 @@ function exportBOM() {
     `purlin_spacing_m,${fmt2(b.purlinSpacing || 0)},,,\n` +
     `purlin_lines,${eng.purlinLines},,,\n` +
     `purlin_segments,${eng.purlinSegments},,,\n` +
-    `girt_spacing_m,${fmt2(b.girtSpacing || 0)},,,\n` +
+        `girt_spacing_m,${fmt2(b.girtSpacing || 0)},,,\n` +
     `girt_levels_left,${eng.girtLevelsL},,,\n` +
-    `girt_levels_right,${eng.girtLevelsR)},,,\n` +
+    `girt_levels_right,${eng.girtLevelsR},,,\n` +
     `girt_segments,${eng.girtSegments},,,\n` +
     "\n#METROS_LINEALES_POR_TIPO\n" +
     mlByType.map((r) => `ml_${r.type},,,${r.ml.toFixed(2)},\n`).join("");
