@@ -1,11 +1,14 @@
 // script.js (ES Module) — GitHub Pages friendly (imports por URL completa)
-// ✅ Actualizado para: BOM con clases (bom-tech/bom-section/bom-divider/bom-ok/bom-warn)
-// ✅ más robusto (no rompe si faltan nodos)
+// ✅ BOM con clases (bom-tech/bom-section/bom-divider/bom-ok/bom-warn)
+// ✅ robusto (no rompe si faltan nodos)
 // ✅ IFC Export REAL (IFC4) — geometría paramétrica (extrusiones) + jerarquía Proyecto/Sitio/Edificio/Nivel
 //    - Columnas -> IfcColumn
 //    - Vigas/Cabios -> IfcBeam
 //    - Correas/Largueros -> IfcMember
 //    - Representación: IfcExtrudedAreaSolid (rectángulo) orientado por placement (eje local Z = dirección de la barra)
+// ✅ NUEVO: Conexiones paramétricas reales (End-Plate atornillada) con bulón M16 (default),
+//          chequeos mínimos (V, N, interacción) + bearing + soldadura aprox
+// ✅ NUEVO: BOM suma placas y bulones; Validaciones agrega estado de conexiones
 
 const qs = (sel, parent = document) => parent.querySelector(sel);
 const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
@@ -16,6 +19,48 @@ const state = {
   model: null,
   version: 0,
   wizardStep: 1,
+
+  // ✅ Catálogo mínimo (extensible)
+  catalog: {
+    densitySteel: 7850, // kg/m3
+    gammaM2: 1.25,
+    materials: {
+      S275: { fy: 275, fu: 430, E: 210000 }, // MPa
+      S355: { fy: 355, fu: 510, E: 210000 }, // MPa
+    },
+    bolts: {
+      "8.8": { fu: 800 }, // MPa
+      "10.9": { fu: 1000 }, // MPa
+    },
+    // Áreas resistentes As (mm2) típicas (ISO). Podés ampliar.
+    boltAs: {
+      M12: 84.3,
+      M16: 157,
+      M20: 245,
+      M24: 353,
+    },
+    // Clasificación (placeholder formal): Omniclass/Uniclass/Custom
+    classifications: {
+      // ejemplo simple: podés mapear a Uniclass/Omniclass real más adelante
+      columna: { system: "RMM", code: "SS_25_10_20", name: "Steel Columns" },
+      cabio: { system: "RMM", code: "SS_25_10_10", name: "Steel Beams/Rafters" },
+      viga: { system: "RMM", code: "SS_25_10_10", name: "Steel Beams" },
+      correas: { system: "RMM", code: "SS_25_30_50", name: "Purlins" },
+      correas_columna: { system: "RMM", code: "SS_25_30_40", name: "Girts" },
+      endplate: { system: "RMM", code: "SS_25_20_10", name: "End Plate Connection" },
+      bolt: { system: "RMM", code: "Pr_65_52", name: "Bolts" },
+      weld: { system: "RMM", code: "Pr_65_55", name: "Welds" },
+    },
+  },
+
+  // ✅ Acciones de diseño (si no existe UI, se usan defaults)
+  designActions: {
+    knee: {
+      Mk_kNm: 60, // Momento por rodilla (kNm) (default demo)
+      Vk_kN: 40, // Cortante por rodilla (kN)
+      Nk_kN: 0, // Axial (kN) opcional
+    },
+  },
 
   preview: {
     ready: false,
@@ -343,7 +388,6 @@ function bindIndustrialControls() {
       const file = e.target.files?.[0];
       if (!file) return;
 
-      // ✅ Por ahora: loader placeholder (cuando integremos IFC.js lo cargamos real)
       const st = qs("#ifc-status");
       if (st) st.textContent = "Carga IFC: pendiente de integrar IFC.js empaquetado. (Preview 3D funciona igual).";
       const vs = qs("#viewer-status");
@@ -351,6 +395,35 @@ function bindIndustrialControls() {
       e.target.value = "";
     });
   }
+
+  // ✅ Lectura opcional de acciones de diseño (si existen inputs)
+  bindDesignActionsInputs();
+}
+
+// -------------------- ACCIONES DE DISEÑO (UI opcional) --------------------
+function bindDesignActionsInputs() {
+  // Si agregás estos inputs en HTML, quedan activos:
+  //  - #knee-mk (kNm), #knee-vk (kN), #knee-nk (kN)
+  const mk = qs("#knee-mk");
+  const vk = qs("#knee-vk");
+  const nk = qs("#knee-nk");
+
+  const apply = () => {
+    if (mk) state.designActions.knee.Mk_kNm = clamp(Number(mk.value || 60), 0, 5000);
+    if (vk) state.designActions.knee.Vk_kN = clamp(Number(vk.value || 40), 0, 5000);
+    if (nk) state.designActions.knee.Nk_kN = clamp(Number(nk.value || 0), -5000, 5000);
+    // Revalida si ya hay modelo
+    if (state.model) {
+      computeAndAttachConnectionChecks(state.model);
+      renderBOMFromModel();
+      runRules();
+    }
+  };
+
+  [mk, vk, nk].filter(Boolean).forEach((el) => {
+    el.addEventListener("input", apply);
+    el.addEventListener("change", apply);
+  });
 }
 
 // -------------------- NUEVAS UTILIDADES BOM (ML + CLASIFICACIÓN) --------------------
@@ -365,7 +438,12 @@ function computeTotals(model) {
   const elements = model?.elements || [];
   const count = elements.reduce((acc, e) => acc + (Number(e.qty) || 0), 0);
   const weight = elements.reduce((acc, e) => acc + (Number(e.weightKg) || 0), 0);
-  return { count, weight };
+
+  // sumar conexiones si existen
+  const connWeight = (model?.connectionBOM?.items || []).reduce((acc, it) => acc + (Number(it.weightKg) || 0), 0);
+  const connCount = (model?.connectionBOM?.items || []).reduce((acc, it) => acc + (Number(it.qty) || 0), 0);
+
+  return { count: count + connCount, weight: weight + connWeight };
 }
 
 function computeTotalsByGroup(model) {
@@ -380,6 +458,10 @@ function computeTotalsByGroup(model) {
     else if (isSecondaryType(e.type)) wSecondary += w;
     else wOther += w;
   }
+
+  // conexiones como "other"
+  const connWeight = (model?.connectionBOM?.items || []).reduce((acc, it) => acc + (Number(it.weightKg) || 0), 0);
+  wOther += connWeight;
 
   return { wPrimary, wSecondary, wOther, wTotal: wPrimary + wSecondary + wOther };
 }
@@ -483,6 +565,297 @@ function computeEngineering(model) {
   };
 }
 
+// ============================================================================
+// ====================== CONEXIONES PARAMÉTRICAS (M16) =======================
+// ============================================================================
+
+// Default: End-Plate atornillada (rodilla)
+// Unidades internas: fuerzas N, momentos Nmm, dimensiones mm.
+function defaultEndPlateConnection() {
+  return {
+    type: "endplate_bolted",
+    material: "S355",
+    bolts: {
+      d: 16, // mm (M16)
+      grade: "8.8",
+      nRows: 4,
+      nCols: 2,
+      // paso y distancias a borde (mm)
+      p: 70, // pitch vertical
+      g: 80, // gauge horizontal (entre columnas de bulones)
+      e1: 40, // borde horizontal
+      e2: 40, // borde inferior
+    },
+    plate: {
+      t: 12, // mm
+      width: 220, // mm
+      height: 380, // mm
+    },
+    weld: {
+      a: 6, // garganta mm (aprox)
+      // longitud se calcula en base al ancho de placa si no se da
+      length: null, // mm (si null => 2*width)
+    },
+  };
+}
+
+function ensureConnections(model) {
+  if (!model) return;
+  if (!model.connections) model.connections = [];
+
+  // Evitar duplicar si ya existen y corresponden a esta versión
+  if (model.connections?.length) return;
+
+  const b = model.building || {};
+  const frames = Number(b.frames || 0);
+  const roof = b.roof || "dos_aguas";
+
+  // Por cada pórtico: rodilla izquierda y derecha
+  // Mapeo de ids (según tu generador actual)
+  for (let i = 1; i <= frames; i++) {
+    const colL = `COL-L-${i}`;
+    const colR = `COL-R-${i}`;
+
+    if (roof === "dos_aguas") {
+      const rafL = `RAF-L-${i}`;
+      const rafR = `RAF-R-${i}`;
+
+      model.connections.push({
+        id: `KNEE-L-${i}`,
+        from: colL,
+        to: rafL,
+        ...defaultEndPlateConnection(),
+        side: "L",
+        frame: i,
+      });
+      model.connections.push({
+        id: `KNEE-R-${i}`,
+        from: colR,
+        to: rafR,
+        ...defaultEndPlateConnection(),
+        side: "R",
+        frame: i,
+      });
+    } else {
+      // una_agua o plana: un beam/cabio por pórtico
+      const beam = `BEAM-${i}`; // tu generador usa BEAM-i para no dos_aguas
+      model.connections.push({
+        id: `KNEE-L-${i}`,
+        from: colL,
+        to: beam,
+        ...defaultEndPlateConnection(),
+        side: "L",
+        frame: i,
+      });
+      model.connections.push({
+        id: `KNEE-R-${i}`,
+        from: colR,
+        to: beam,
+        ...defaultEndPlateConnection(),
+        side: "R",
+        frame: i,
+      });
+    }
+  }
+}
+
+// Calcula resistencias por bulón (simplificado)
+// - Vrd = 0.6 * fub * As / gammaM2
+// - Nrd = 0.9 * fub * As / gammaM2
+function boltDesignResistances({ d, grade }, catalog) {
+  const fub = catalog?.bolts?.[grade]?.fu ?? 800; // MPa
+  const As = catalog?.boltAs?.[`M${d}`] ?? 157; // mm2
+  const gamma = catalog?.gammaM2 ?? 1.25;
+
+  const Vrd = (0.6 * fub * As) / gamma; // N (porque MPa=N/mm2)
+  const Nrd = (0.9 * fub * As) / gamma; // N
+  return { fub, As, Vrd, Nrd };
+}
+
+// Bearing de placa (muy conservador y simple)
+// FbRd ≈ k * d * t * fu / gammaM2
+function bearingResistance({ d, t, material }, catalog) {
+  const fu = catalog?.materials?.[material]?.fu ?? 510; // MPa
+  const gamma = catalog?.gammaM2 ?? 1.25;
+  const k = 1.0;
+  const FbRd = (k * d * t * fu) / gamma; // N
+  return { fu, FbRd };
+}
+
+// Soldadura filete aproximada (conservadora)
+// FwRd ≈ 0.42*fu * Aw / gamma
+function weldResistance({ a, length, material }, catalog) {
+  const fu = catalog?.materials?.[material]?.fu ?? 510; // MPa
+  const gamma = catalog?.gammaM2 ?? 1.25;
+  const fvw = 0.42 * fu; // MPa
+  const Aw = a * length; // mm2 (garganta * longitud)
+  const FwRd = (fvw * Aw) / gamma; // N
+  return { fu, FwRd };
+}
+
+// Chequeo de End-Plate con acciones Mk,Vk,Nk (por conexión)
+// simplificación:
+///  - V por bulón = V / nBolts
+///  - Tensión por momento: T = M / z ; z ~ 0.8*plate.height
+///  - N por bulón = (T / nTensionBolts) + (N/ nBolts) (si Nk>0)
+function checkEndPlate(conn, actions, catalog) {
+  const Mk = Number(actions?.Mk_kNm ?? 60); // kNm
+  const Vk = Number(actions?.Vk_kN ?? 40); // kN
+  const Nk = Number(actions?.Nk_kN ?? 0); // kN
+
+  const M = Mk * 1e6; // Nmm
+  const V = Vk * 1e3; // N
+  const N = Nk * 1e3; // N
+
+  const bolts = conn.bolts;
+  const plate = conn.plate;
+  const weld = conn.weld;
+
+  const nBolts = Math.max(1, (Number(bolts.nRows) || 4) * (Number(bolts.nCols) || 2));
+  const nTensionBolts = Math.max(1, Math.ceil(nBolts / 2)); // simplificación: mitad en tracción
+
+  const { Vrd, Nrd, As, fub } = boltDesignResistances({ d: bolts.d, grade: bolts.grade }, catalog);
+
+  const VEdBolt = V / nBolts;
+
+  const z = Math.max(50, 0.8 * (Number(plate.height) || 380)); // mm
+  const T = M / z; // N (resultante tracción)
+  const NEdBolt_fromM = T / nTensionBolts;
+
+  const NEdBolt_fromN = N / nBolts; // axial distribuida (puede ser negativa -> compresión, ignoramos en tracción)
+  const NEdBolt = Math.max(0, NEdBolt_fromM + NEdBolt_fromN);
+
+  const utilV = Vrd > 0 ? VEdBolt / Vrd : 999;
+  const utilN = Nrd > 0 ? NEdBolt / Nrd : 999;
+  const utilInt = utilV * utilV + utilN * utilN; // criterio elíptico simple
+
+  // Bearing placa
+  const { FbRd } = bearingResistance({ d: bolts.d, t: plate.t, material: conn.material }, catalog);
+  const FbEd = Math.sqrt(VEdBolt * VEdBolt + NEdBolt * NEdBolt); // resultante por bulón
+  const utilBear = FbRd > 0 ? FbEd / FbRd : 999;
+
+  // Soldadura (solo informativo/semáforo)
+  const wLen = weld.length == null ? 2 * (Number(plate.width) || 220) : Number(weld.length);
+  const { FwRd } = weldResistance({ a: weld.a, length: wLen, material: conn.material }, catalog);
+  // Sup: soldadura “toma” una parte del cortante + parte de T (muy aproximado)
+  const FwEd = 0.6 * V + 0.4 * T;
+  const utilWeld = FwRd > 0 ? FwEd / FwRd : 999;
+
+  // Status global de conexión (conservador)
+  const utilMax = Math.max(utilV, utilN, utilBear, utilWeld, Math.sqrt(utilInt));
+  const ok = utilMax <= 1.0;
+
+  return {
+    ok,
+    util: {
+      boltShear: utilV,
+      boltTension: utilN,
+      boltInteraction: utilInt, // <=1
+      bearing: utilBear,
+      weld: utilWeld,
+      max: utilMax,
+    },
+    detail: {
+      actions: { Mk_kNm: Mk, Vk_kN: Vk, Nk_kN: Nk },
+      bolt: { d: bolts.d, grade: bolts.grade, nBolts, nTensionBolts, As, fub, VEdBolt, NEdBolt, Vrd, Nrd },
+      plate: { ...plate, z },
+      weld: { ...weld, length: wLen, FwEd, FwRd },
+      bearing: { FbEd, FbRd },
+    },
+  };
+}
+
+// Adjunta resultados al modelo + genera BOM de conexiones
+function computeAndAttachConnectionChecks(model) {
+  if (!model) return;
+  ensureConnections(model);
+
+  const checks = [];
+  const bomItems = [];
+
+  const actions = state.designActions?.knee || { Mk_kNm: 60, Vk_kN: 40, Nk_kN: 0 };
+  const cat = state.catalog;
+
+  for (const c of model.connections || []) {
+    const res = checkEndPlate(c, actions, cat);
+    checks.push({ id: c.id, from: c.from, to: c.to, type: c.type, ok: res.ok, utilMax: res.util.max, util: res.util, detail: res.detail });
+
+    // BOM por conexión
+    const plate = c.plate;
+    const bolts = c.bolts;
+    const weld = c.weld;
+
+    const t_m = (Number(plate.t) || 12) / 1000;
+    const w_m = (Number(plate.width) || 220) / 1000;
+    const h_m = (Number(plate.height) || 380) / 1000;
+    const plateVol = t_m * w_m * h_m; // m3
+    const plateW = plateVol * cat.densitySteel; // kg
+
+    const nBolts = Math.max(1, (Number(bolts.nRows) || 4) * (Number(bolts.nCols) || 2));
+    const weldLen_m = ((weld.length == null ? 2 * (Number(plate.width) || 220) : Number(weld.length)) / 1000);
+    const weldA_m = (Number(weld.a) || 6) / 1000;
+    // Peso de soldadura no se suele contar, pero dejamos “qty” como metros para taller
+    const weldQty = weldLen_m;
+
+    bomItems.push({
+      type: "endplate",
+      id: `PLATE_${c.id}`,
+      name: `Placa End-Plate ${c.id} (${plate.t}mm)`,
+      qty: 1,
+      unit: "un",
+      weightKg: plateW,
+    });
+    bomItems.push({
+      type: "bolt",
+      id: `BOLT_${c.id}`,
+      name: `Bulón M${bolts.d} ${bolts.grade} (${nBolts}u)`,
+      qty: nBolts,
+      unit: "un",
+      weightKg: 0, // opcional: agregar peso por bulón si querés
+    });
+    bomItems.push({
+      type: "weld",
+      id: `WELD_${c.id}`,
+      name: `Soldadura filete a=${weld.a}mm (L=${weldQty.toFixed(2)}m)`,
+      qty: Number(weldQty.toFixed(2)),
+      unit: "m",
+      weightKg: 0,
+    });
+  }
+
+  model.checks = model.checks || {};
+  model.checks.connections = checks;
+
+  model.connectionBOM = {
+    items: compressConnectionBOM(bomItems),
+    raw: bomItems,
+  };
+}
+
+function compressConnectionBOM(items) {
+  const map = new Map();
+  for (const it of items || []) {
+    const key = `${it.type}|${it.name}|${it.unit || ""}`;
+    const cur = map.get(key) || { ...it, qty: 0, weightKg: 0 };
+    cur.qty += Number(it.qty) || 0;
+    cur.weightKg += Number(it.weightKg) || 0;
+    map.set(key, cur);
+  }
+  return [...map.values()].sort((a, b) => (a.type || "").localeCompare(b.type || ""));
+}
+
+function connectionSummary(model) {
+  const arr = model?.checks?.connections || [];
+  if (!arr.length) return { total: 0, ok: 0, warn: 0, worst: 0 };
+  let ok = 0;
+  let worst = 0;
+  for (const c of arr) {
+    if (c.ok) ok++;
+    worst = Math.max(worst, Number(c.utilMax) || 0);
+  }
+  return { total: arr.length, ok, warn: arr.length - ok, worst };
+}
+
 // -------------------- MODELO PARAMÉTRICO (JSON) --------------------
 function generateModelFromIndustrial() {
   const span = Number(qs("#ind-span")?.value || 24);
@@ -520,6 +893,9 @@ function generateModelFromIndustrial() {
       step,
     },
     elements: [],
+    connections: [], // ✅
+    checks: {}, // ✅
+    connectionBOM: { items: [], raw: [] }, // ✅
   };
 
   // columnas y cabios/vigas por pórtico (BOM lógico)
@@ -580,6 +956,10 @@ function generateModelFromIndustrial() {
   model.building.girtLevelsL = levelsL;
   model.building.girtLevelsR = levelsR;
 
+  // ✅ Conexiones + chequeos + BOM conexiones
+  ensureConnections(model);
+  computeAndAttachConnectionChecks(model);
+
   state.model = model;
 
   const gs = qs("#geometry-status");
@@ -639,15 +1019,55 @@ function renderBOMFromModel() {
     cur.ml += (Number(e.qty) || 0) * (Number(e.length) || 0);
     map.set(k, cur);
   }
+
+  // ✅ Sumar items de conexiones como filas BOM "extra"
+  const connItems = state.model.connectionBOM?.items || [];
+  for (const it of connItems) {
+    const k = it.type || "conexion";
+    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0, ml: 0 };
+    cur.qty += Number(it.qty) || 0;
+    cur.weightKg += Number(it.weightKg) || 0;
+    // ml no aplica
+    map.set(k, cur);
+  }
+
   const rows = [...map.values()].sort((a, bb) => a.type.localeCompare(bb.type));
+
+  const connSum = connectionSummary(state.model);
 
   // Filas técnicas (con kind para clases)
   const techRows = [
     { kind: "divider", name: "—", qty: "", w: "", status: "—" },
 
+    { kind: "section", name: "CONEXIONES (END-PLATE) — M16", qty: "", w: "", status: "INFO" },
+    {
+      kind: "tech",
+      name: "Conexiones generadas (un)",
+      qty: fmt(connSum.total),
+      w: "",
+      status: connSum.warn ? "WARN" : "OK",
+    },
+    {
+      kind: "tech",
+      name: "Conexiones OK / Revisar",
+      qty: `${fmt(connSum.ok)} / ${fmt(connSum.warn)}`,
+      w: "",
+      status: connSum.warn ? "WARN" : "OK",
+    },
+    {
+      kind: "tech",
+      name: "Utilización peor (max)",
+      qty: fmt2(connSum.worst),
+      w: "",
+      status: connSum.worst > 1.0 ? "WARN" : "OK",
+    },
+
+    { kind: "divider", name: "—", qty: "", w: "", status: "—" },
+
     { kind: "section", name: "MÉTRICAS (PESO POR SISTEMA)", qty: "", w: "", status: "INFO" },
     { kind: "tech", name: "Peso primaria (kg) — pórticos", qty: "", w: fmt(Math.round(grouped.wPrimary)), status: "OK" },
     { kind: "tech", name: "Peso secundaria (kg) — correas+largueros", qty: "", w: fmt(Math.round(grouped.wSecondary)), status: "OK" },
+    { kind: "tech", name: "Peso otros (kg) — conexiones", qty: "", w: fmt(Math.round(grouped.wOther)), status: "OK" },
     { kind: "tech", name: "Peso total (kg)", qty: "", w: fmt(Math.round(grouped.wTotal)), status: "OK" },
 
     { kind: "divider", name: "—", qty: "", w: "", status: "—" },
@@ -694,12 +1114,13 @@ function renderBOMFromModel() {
 
   const bomHtml = rows
     .map((r) => {
+      const mlLabel = r.ml > 0 ? `${fmt2(r.ml)} m.l.` : "";
       return `
       <tr>
         <td>${r.type}</td>
         <td>${fmt(r.qty)}</td>
         <td>${fmt(Math.round(r.weightKg))}</td>
-        <td>${fmt2(r.ml)} m.l.</td>
+        <td>${mlLabel}</td>
       </tr>
     `;
     })
@@ -726,7 +1147,8 @@ function renderBOMFromModel() {
   if (st) {
     st.textContent =
       `Modelo: ${b.roof || "-"} — pendiente ${((b.slope || 0) * 100).toFixed(1)}% — ` +
-      `kg/m² total(planta) ${fmt2(eng.kgm2Plan)} | prim ${fmt2(eng.kgm2PlanPrimary)} | sec ${fmt2(eng.kgm2PlanSecondary)}`;
+      `kg/m² total(planta) ${fmt2(eng.kgm2Plan)} | prim ${fmt2(eng.kgm2PlanPrimary)} | sec ${fmt2(eng.kgm2PlanSecondary)} — ` +
+      `Conexiones: ${connSum.ok}/${connSum.total} OK`;
   }
 }
 
@@ -763,14 +1185,33 @@ function exportBOM() {
     map.set(k, cur);
   }
 
+  // ✅ sumo conexiones BOM
+  for (const it of state.model.connectionBOM?.items || []) {
+    const k = it.type || "conexion";
+    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0, ml: 0 };
+    cur.qty += Number(it.qty) || 0;
+    cur.weightKg += Number(it.weightKg) || 0;
+    map.set(k, cur);
+  }
+
   const rows = [...map.values()];
   const header = "Elemento,Cantidad,Peso_kg,MetrosLineales_m,Version\n";
-  const lines = rows.map((r) => `${r.type},${r.qty},${Math.round(r.weightKg)},${r.ml.toFixed(2)},${state.version}`).join("\n");
+  const lines = rows
+    .map((r) => `${r.type},${r.qty},${Math.round(r.weightKg)},${(r.ml || 0).toFixed(2)},${state.version}`)
+    .join("\n");
+
+  const connSum = connectionSummary(state.model);
 
   const extra =
-    "\n\n#PESO_POR_SISTEMA\n" +
+    "\n\n#CONEXIONES\n" +
+    `conexiones_total,${connSum.total},,,\n` +
+    `conexiones_ok,${connSum.ok},,,\n` +
+    `conexiones_warn,${connSum.warn},,,\n` +
+    `conexiones_util_peor,${connSum.worst.toFixed(3)},,,\n` +
+    "\n#PESO_POR_SISTEMA\n" +
     `peso_primaria_kg,,${Math.round(grouped.wPrimary)},,\n` +
     `peso_secundaria_kg,,${Math.round(grouped.wSecondary)},,\n` +
+    `peso_otros_conexiones_kg,,${Math.round(grouped.wOther)},,\n` +
     `peso_total_kg,,${Math.round(grouped.wTotal)},,\n` +
     "\n#METRICAS_TECNICAS\n" +
     `roof,${b.roof || ""},,,\n` +
@@ -810,14 +1251,8 @@ function exportBOM() {
 function v3(x = 0, y = 0, z = 0) {
   return { x, y, z };
 }
-function vAdd(a, b) {
-  return v3(a.x + b.x, a.y + b.y, a.z + b.z);
-}
 function vSub(a, b) {
   return v3(a.x - b.x, a.y - b.y, a.z - b.z);
-}
-function vMul(a, s) {
-  return v3(a.x * s, a.y * s, a.z * s);
 }
 function vLen(a) {
   return Math.hypot(a.x, a.y, a.z);
@@ -834,23 +1269,18 @@ function vCross(a, b) {
 }
 
 // ---- IFC GUID (22 chars) ----
-// Implementación estándar (base64-like de IFC) usando 16 bytes aleatorios.
 const IFC64 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$";
 function ifcGuidFromBytes(bytes16) {
   const b = bytes16;
   const toInt = (i) => (b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3];
 
-  const parts = [toInt(0) >>> 0, toInt(4) >>> 0, toInt(8) >>> 0, toInt(12) >>> 0]; // 4x uint32
+  const parts = [toInt(0) >>> 0, toInt(4) >>> 0, toInt(8) >>> 0, toInt(12) >>> 0];
 
-  // Convert to 22 chars
-  let res = "";
   let num = BigInt(parts[0]);
   num = (num << 32n) + BigInt(parts[1]);
   num = (num << 32n) + BigInt(parts[2]);
   num = (num << 32n) + BigInt(parts[3]);
 
-  // 128 bits -> 22 base64-ish chars (since 64^22 ~ 2^132)
-  // We encode from MSB to LSB.
   const mask = 63n;
   const chars = [];
   for (let i = 0; i < 22; i++) {
@@ -858,15 +1288,13 @@ function ifcGuidFromBytes(bytes16) {
     const idx = Number((num >> shift) & mask);
     chars.push(IFC64[idx]);
   }
-  res = chars.join("");
-  return res;
+  return chars.join("");
 }
 
 function ifcGuid() {
   const bytes = new Uint8Array(16);
   if (window.crypto?.getRandomValues) window.crypto.getRandomValues(bytes);
   else {
-    // fallback (no crypto): pseudo
     for (let i = 0; i < 16; i++) bytes[i] = (Math.random() * 256) | 0;
   }
   return ifcGuidFromBytes(bytes);
@@ -881,11 +1309,7 @@ function ifcStr(s) {
 function ifcNum(n) {
   const x = Number(n);
   if (!Number.isFinite(x)) return "0.";
-  // IFC suele usar "1." en lugar de "1"
   return `${x.toFixed(6).replace(/0+$/, "").replace(/\.$/, ".")}`;
-}
-function ifcBool(b) {
-  return b ? ".T." : ".F.";
 }
 function ifcRef(id) {
   return `#${id}`;
@@ -901,7 +1325,6 @@ function ifcPt(v) {
 }
 
 // ---- Segmentación geométrica desde el modelo paramétrico ----
-// Devuelve barras "reales" con start/end, tipo IFC, y sección (ancho/alto) aproximada.
 function buildSegmentsFromModel(model) {
   const b = model?.building;
   if (!b) return [];
@@ -911,7 +1334,6 @@ function buildSegmentsFromModel(model) {
   const halfSpan = span / 2;
   const step = frames > 1 ? length / (frames - 1) : length;
 
-  // Secciones aproximadas (m) - mismas que preview (pero sin THREE)
   const colSize = Math.max(0.12, span * 0.006);
   const rafterSize = Math.max(0.10, span * 0.005);
   const purlinSize = Math.max(0.06, span * 0.0035);
@@ -919,35 +1341,22 @@ function buildSegmentsFromModel(model) {
 
   function roofY(x) {
     if (roof === "plana") return height;
-
     if (roof === "una_agua") {
       const t = (x + halfSpan) / span;
       return height + t * (span * slope);
     }
-
-    // dos_aguas
     const t = Math.abs(x) / halfSpan;
     return height + (1 - t) * (halfSpan * slope);
   }
 
   const segs = [];
-
-  // Helper to push segment
   function pushSeg(kind, name, a, c, size) {
     const dir = vSub(c, a);
     const len = vLen(dir);
     if (len <= 1e-6) return;
-    segs.push({
-      kind, // "COLUMN" | "BEAM" | "MEMBER"
-      name,
-      a,
-      b: c,
-      size, // sección cuadrada aprox (m)
-      length: len,
-    });
+    segs.push({ kind, name, a, b: c, size, length: len });
   }
 
-  // PÓRTICOS
   for (let i = 0; i < frames; i++) {
     const z = i * step;
 
@@ -966,33 +1375,25 @@ function buildSegmentsFromModel(model) {
     pushSeg("COLUMN", `COL-R-${i + 1}`, baseR, topR, colSize);
 
     if (roof === "plana") {
-      const a = v3(-halfSpan, roofY(-halfSpan), z);
-      const c = v3(halfSpan, roofY(halfSpan), z);
-      pushSeg("BEAM", `BEAM-${i + 1}`, a, c, rafterSize);
+      pushSeg("BEAM", `BEAM-${i + 1}`, v3(-halfSpan, roofY(-halfSpan), z), v3(halfSpan, roofY(halfSpan), z), rafterSize);
     } else if (roof === "una_agua") {
       pushSeg("BEAM", `RAF-${i + 1}`, topL, topR, rafterSize);
     } else {
-      // dos aguas
       const eaveL = v3(-halfSpan, height, z);
       const eaveR = v3(halfSpan, height, z);
       const ridge = v3(0, height + halfSpan * slope, z);
-
       pushSeg("BEAM", `RAF-L-${i + 1}`, eaveL, ridge, rafterSize);
       pushSeg("BEAM", `RAF-R-${i + 1}`, ridge, eaveR, rafterSize);
     }
   }
 
-  // CORREAS TECHO (por vano)
   const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
-
   for (let bay = 0; bay < frames - 1; bay++) {
     const z0 = bay * step;
     const z1 = (bay + 1) * step;
 
     if (roof === "dos_aguas") {
       const halfLines = Math.max(1, Math.floor(linesAcross / 2));
-
-      // lado izquierdo + cumbrera + derecho
       for (let k = 0; k <= halfLines; k++) {
         const x = -halfSpan + (k / halfLines) * halfSpan;
         pushSeg("MEMBER", `PURLIN-L-${bay + 1}-${k + 1}`, v3(x, roofY(x), z0), v3(x, roofY(x), z1), purlinSize);
@@ -1010,7 +1411,6 @@ function buildSegmentsFromModel(model) {
     }
   }
 
-  // LARGUEROS (por vano)
   for (let bay = 0; bay < frames - 1; bay++) {
     const z0 = bay * step;
     const z1 = (bay + 1) * step;
@@ -1075,37 +1475,28 @@ class IFCWriter {
     return ["ENDSEC;", "END-ISO-10303-21;"].join("\n");
   }
 
-  // Crea una base IFC coherente + devuelve ids raíz (project, site, building, storey, context, ownerHistory)
   buildBase({ buildingName = "Nave Industrial", storeyName = "Nivel 0" } = {}) {
-    // PERSON / ORG / APP
     const person = this.add("IFCPERSON", `${ifcStr("")},${ifcStr("")},${ifcStr("RMM")},$,$,$,$,$`);
     const org = this.add("IFCORGANIZATION", `${ifcStr("")},${ifcStr("RMM")},${ifcStr("")},$,$`);
     const pAndO = this.add("IFCPERSONANDORGANIZATION", `${ifcRef(person)},${ifcRef(org)},$`);
     const app = this.add("IFCAPPLICATION", `${ifcRef(org)},${ifcStr("1.0")},${ifcStr("RMM Web")},${ifcStr("RMM_WEB")}`);
     const ownerHistory = this.add("IFCOWNERHISTORY", `${ifcRef(pAndO)},${ifcRef(app)},$,.ADDED.,$,$,$,${ifcNum(Date.now() / 1000)}`);
 
-    // UNITS
     const uLen = this.add("IFCSIUNIT", `$,.LENGTHUNIT.,.METRE.,$`);
     const uArea = this.add("IFCSIUNIT", `$,.AREAUNIT.,.SQUARE_METRE.,$`);
     const uVol = this.add("IFCSIUNIT", `$,.VOLUMEUNIT.,.CUBIC_METRE.,$`);
-    const uMass = this.add("IFCSIUNIT", `$,.MASSUNIT.,.GRAM.,.KILO.`); // kilogram
+    const uMass = this.add("IFCSIUNIT", `$,.MASSUNIT.,.GRAM.,.KILO.`);
     const unitAssignment = this.add("IFCUNITASSIGNMENT", ifcList([ifcRef(uLen), ifcRef(uArea), ifcRef(uVol), ifcRef(uMass)]));
 
-    // GEOMETRY CONTEXT
     const originPt = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
     const wcs = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(originPt)},$,$`);
-    const context = this.add(
-      "IFCGEOMETRICREPRESENTATIONCONTEXT",
-      `${ifcStr("Model")},${ifcStr("3D")},3,${ifcNum(1e-5)},${ifcRef(wcs)},$`
-    );
+    const context = this.add("IFCGEOMETRICREPRESENTATIONCONTEXT", `${ifcStr("Model")},${ifcStr("3D")},3,${ifcNum(1e-5)},${ifcRef(wcs)},$`);
 
-    // PROJECT
     const project = this.add(
       "IFCPROJECT",
       `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(this.projectName)},${ifcStr("")},$,$,$,${ifcList([ifcRef(context)])},${ifcRef(unitAssignment)}`
     );
 
-    // SITE / BUILDING / STOREY placements
     const siteLoc = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
     const siteAxis = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(siteLoc)},$,$`);
     const sitePlacement = this.add("IFCLOCALPLACEMENT", `$,${ifcRef(siteAxis)}`);
@@ -1133,22 +1524,23 @@ class IFCWriter {
       `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(storeyName)},${ifcStr("")},$,$,${ifcRef(stPlacement)},$,$,.ELEMENT.,${ifcNum(0)}`
     );
 
-    // AGGREGATES: Project->Site->Building->Storey
-    this.add("IFCRELAGGREGATES", `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,
-      ${ifcRef(project)},${ifcList([ifcRef(site)])}`.replace(/\s+/g, " "));
-    this.add("IFCRELAGGREGATES", `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,
-      ${ifcRef(site)},${ifcList([ifcRef(building)])}`.replace(/\s+/g, " "));
-    this.add("IFCRELAGGREGATES", `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,
-      ${ifcRef(building)},${ifcList([ifcRef(storey)])}`.replace(/\s+/g, " "));
+    this.add(
+      "IFCRELAGGREGATES",
+      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,${ifcRef(project)},${ifcList([ifcRef(site)])}`.replace(/\s+/g, " ")
+    );
+    this.add(
+      "IFCRELAGGREGATES",
+      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,${ifcRef(site)},${ifcList([ifcRef(building)])}`.replace(/\s+/g, " ")
+    );
+    this.add(
+      "IFCRELAGGREGATES",
+      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,${ifcRef(building)},${ifcList([ifcRef(storey)])}`.replace(/\s+/g, " ")
+    );
 
     return { ownerHistory, context, project, site, building, storey, storeyPlacement: stPlacement };
   }
 
-  // Crea placement orientado para una barra:
-  // - LocalPlacement relativo al storeyPlacement
-  // - Axis2Placement3D con Axis = dir (local Z) y RefDirection = xDir
   makeMemberPlacement({ storeyPlacement, start, dirUnit }) {
-    // elegir refDir no paralelo al eje
     const z = vNorm(dirUnit);
     const up = Math.abs(vDot(z, v3(0, 0, 1))) > 0.95 ? v3(0, 1, 0) : v3(0, 0, 1);
     const x = vNorm(vCross(up, z));
@@ -1162,23 +1554,18 @@ class IFCWriter {
     return lp;
   }
 
-  // Shape: extrusión rectangular a lo largo de +Z local
   makeExtrudedRectShape({ context, width, height, depth }) {
-    const origin2d = this.add("IFCCARTESIANPOINT", `(0.,0.)`); // IfcCartesianPoint (2D) en STEP suele ser (x,y)
+    const origin2d = this.add("IFCCARTESIANPOINT", `(0.,0.)`);
     const prof = this.add(
       "IFCRECTANGLEPROFILEDEF",
-      `.AREA.,${ifcStr("")},$,
-      ${ifcRef(origin2d)},${ifcNum(width)},${ifcNum(height)}`.replace(/\s+/g, " ")
+      `.AREA.,${ifcStr("")},$,${ifcRef(origin2d)},${ifcNum(width)},${ifcNum(height)}`.replace(/\s+/g, " ")
     );
 
     const solidPosPt = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
     const solidPos = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(solidPosPt)},$,$`);
 
     const extrudeDir = this.add("IFCDIRECTION", ifcDir(v3(0, 0, 1)));
-    const solid = this.add(
-      "IFCEXTRUDEDAREASOLID",
-      `${ifcRef(prof)},${ifcRef(solidPos)},${ifcRef(extrudeDir)},${ifcNum(depth)}`
-    );
+    const solid = this.add("IFCEXTRUDEDAREASOLID", `${ifcRef(prof)},${ifcRef(solidPos)},${ifcRef(extrudeDir)},${ifcNum(depth)}`);
 
     const bodyRep = this.add(
       "IFCSHAPEREPRESENTATION",
@@ -1189,30 +1576,23 @@ class IFCWriter {
     return pds;
   }
 
-  // Producto (IfcColumn/IfcBeam/IfcMember) + lo devuelve (id)
-  addLinearProduct({ ownerHistory, storey, storeyPlacement, context, kind, name, start, end, size }) {
+  addLinearProduct({ ownerHistory, storeyPlacement, context, kind, name, start, end, size }) {
     const dir = vSub(end, start);
     const len = vLen(dir);
     const dirUnit = vNorm(dir);
 
-    // placement en start, con eje Z local apuntando a end
     const placement = this.makeMemberPlacement({ storeyPlacement, start, dirUnit });
 
-    // sección cuadrada aprox
     const w = Math.max(0.02, Number(size) || 0.08);
     const h = w;
-
     const shape = this.makeExtrudedRectShape({ context, width: w, height: h, depth: len });
 
     const ent = kind === "COLUMN" ? "IFCCOLUMN" : kind === "BEAM" ? "IFCBEAM" : "IFCMEMBER";
     const prod = this.add(
       ent,
-      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(name)},${ifcStr("")},$,
-      ${ifcRef(placement)},${ifcRef(shape)},$,$`.replace(/\s+/g, " ")
+      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(name)},${ifcStr("")},$,${ifcRef(placement)},${ifcRef(shape)},$,$`.replace(/\s+/g, " ")
     );
 
-    // Containment (lo hacemos luego en lote, pero soporta también individual)
-    // Devolvemos prodId para luego relContained
     return prod;
   }
 }
@@ -1237,12 +1617,10 @@ async function exportIFC() {
 
     const segs = buildSegmentsFromModel(state.model);
 
-    // Crear productos
     const prodIds = [];
     for (const s of segs) {
       const pid = writer.addLinearProduct({
         ownerHistory: base.ownerHistory,
-        storey: base.storey,
         storeyPlacement: base.storeyPlacement,
         context: base.context,
         kind: s.kind,
@@ -1254,26 +1632,23 @@ async function exportIFC() {
       prodIds.push(pid);
     }
 
-    // Relación de contención al storey (en lote)
     if (prodIds.length) {
       writer.add(
         "IFCRELCONTAINEDINSPATIALSTRUCTURE",
-        `${ifcStr(ifcGuid())},${ifcRef(base.ownerHistory)},${ifcStr("Containment")},$,
-        ${ifcList(prodIds.map((id) => ifcRef(id)))},${ifcRef(base.storey)}`.replace(/\s+/g, " ")
+        `${ifcStr(ifcGuid())},${ifcRef(base.ownerHistory)},${ifcStr("Containment")},$,${ifcList(prodIds.map((id) => ifcRef(id)))},${ifcRef(base.storey)}`.replace(
+          /\s+/g,
+          " "
+        )
       );
     }
 
-    const ifcText = [
-      writer.header({ fileName, author: "RMM", org: "RMM", app: "RMM Web", time: nowISO() }),
-      writer.lines.join("\n"),
-      writer.footer(),
-    ].join("\n");
+    const ifcText = [writer.header({ fileName, author: "RMM", org: "RMM", app: "RMM Web", time: nowISO() }), writer.lines.join("\n"), writer.footer()].join(
+      "\n"
+    );
 
     downloadText(fileName, ifcText, "application/octet-stream");
 
-    if (st) {
-      st.textContent = `IFC4 exportado (REAL): ${prodIds.length} elementos — archivo ${fileName}`;
-    }
+    if (st) st.textContent = `IFC4 exportado (REAL): ${prodIds.length} elementos — archivo ${fileName}`;
   } catch (err) {
     if (st) st.textContent = `Error exportando IFC: ${err?.message || err}`;
   }
@@ -1286,15 +1661,9 @@ function rule(id, name, ok, msg) {
 
 function getTypicalRanges(cover) {
   if (cover === "panel") {
-    return {
-      purlin: { min: 1.2, max: 2.5 },
-      girt: { min: 1.2, max: 2.2 },
-    };
+    return { purlin: { min: 1.2, max: 2.5 }, girt: { min: 1.2, max: 2.2 } };
   }
-  return {
-    purlin: { min: 0.8, max: 1.5 },
-    girt: { min: 1.0, max: 2.0 },
-  };
+  return { purlin: { min: 0.8, max: 1.5 }, girt: { min: 1.0, max: 2.0 } };
 }
 
 function runRules() {
@@ -1307,6 +1676,9 @@ function runRules() {
     list.innerHTML = "";
     return;
   }
+
+  // ✅ recalcular chequeos por si cambian acciones
+  computeAndAttachConnectionChecks(state.model);
 
   const b = state.model.building;
   const results = [];
@@ -1338,20 +1710,58 @@ function runRules() {
     )
   );
 
+  // ✅ Conexiones
+  const connSum = connectionSummary(state.model);
+  results.push(
+    rule(
+      "R7",
+      "Conexiones (End-Plate M16) — semáforo",
+      connSum.warn === 0,
+      `Hay ${connSum.warn}/${connSum.total} conexiones para revisar (utilización peor: ${fmt2(connSum.worst)}).`
+    )
+  );
+
   const ok = results.filter((r) => r.ok).length;
   summary.textContent = `Validaciones: ${ok}/${results.length} OK`;
 
-  list.innerHTML = results
-    .map(
-      (r) => `
+  // Detalle opcional (top 6 peores conexiones)
+  const worst = (state.model.checks?.connections || [])
+    .slice()
+    .sort((a, b) => (Number(b.utilMax) || 0) - (Number(a.utilMax) || 0))
+    .slice(0, 6);
+
+  const worstHtml =
+    worst.length > 0
+      ? `
+      <div class="rule-item">
+        <strong>Detalle (peores conexiones)</strong>
+        ${worst
+          .map(
+            (c) => `
+            <div class="helper">
+              ${c.ok ? "✅" : "⚠️"} ${c.id} — util ${fmt2(c.utilMax)} (V=${fmt2(c.util.boltShear)} N=${fmt2(c.util.boltTension)} bear=${fmt2(
+              c.util.bearing
+            )} weld=${fmt2(c.util.weld)})
+            </div>
+          `
+          )
+          .join("")}
+      </div>
+    `
+      : "";
+
+  list.innerHTML =
+    results
+      .map(
+        (r) => `
       <div class="rule-item">
         <strong>${r.id} — ${r.name}</strong>
         <div>${r.ok ? "✅ OK" : "⚠️ Revisar"}</div>
         ${r.ok ? "" : `<div class="helper">${r.msg}</div>`}
       </div>
     `
-    )
-    .join("");
+      )
+      .join("") + worstHtml;
 }
 
 // -------------------- PREVIEW 3D (Three.js) --------------------
@@ -1368,17 +1778,7 @@ async function ensurePreview3D() {
     state.preview.THREE = THREE;
     state.preview.OrbitControls = oc.OrbitControls;
 
-    const {
-      WebGLRenderer,
-      Scene,
-      PerspectiveCamera,
-      Color,
-      Fog,
-      AxesHelper,
-      GridHelper,
-      AmbientLight,
-      DirectionalLight,
-    } = THREE;
+    const { WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, AxesHelper, GridHelper, AmbientLight, DirectionalLight } = THREE;
 
     container.innerHTML = "";
 
@@ -1545,12 +1945,10 @@ async function renderParametricPreview() {
 
   function roofY(x) {
     if (roof === "plana") return height;
-
     if (roof === "una_agua") {
       const t = (x + halfSpan) / span;
       return height + t * (span * slope);
     }
-
     const t = Math.abs(x) / halfSpan;
     return height + (1 - t) * (halfSpan * slope);
   }
@@ -1574,8 +1972,8 @@ async function renderParametricPreview() {
 
     if (roof === "plana") {
       const a = new THREE.Vector3(-halfSpan, roofY(-halfSpan), z);
-      const b = new THREE.Vector3(halfSpan, roofY(halfSpan), z);
-      addMember(THREE, group, a, b, rafterSize, matRafter);
+      const b2 = new THREE.Vector3(halfSpan, roofY(halfSpan), z);
+      addMember(THREE, group, a, b2, rafterSize, matRafter);
     } else if (roof === "una_agua") {
       addMember(THREE, group, topL, topR, rafterSize, matRafter);
     } else {
@@ -1644,7 +2042,6 @@ async function renderParametricPreview() {
   }
 
   scene.add(group);
-
   fitToGroup(THREE, state.preview.camera, state.preview.controls, group);
 
   const vs = qs("#viewer-status");
@@ -1653,10 +2050,12 @@ async function renderParametricPreview() {
   const eng = computeEngineering(state.model);
   const st = qs("#ifc-status");
   if (st) {
+    const connSum = connectionSummary(state.model);
     st.textContent =
       `Preview 3D: ${roof} — pendiente ${(slope * 100).toFixed(1)}% — ` +
       `correas ${purlinSpacing.toFixed(2)}m — largueros ${girtSpacing.toFixed(2)}m — ` +
-      `kg/m² total(planta) ${fmt2(eng.kgm2Plan)} | prim ${fmt2(eng.kgm2PlanPrimary)} | sec ${fmt2(eng.kgm2PlanSecondary)}`;
+      `kg/m² total(planta) ${fmt2(eng.kgm2Plan)} | prim ${fmt2(eng.kgm2PlanPrimary)} | sec ${fmt2(eng.kgm2PlanSecondary)} — ` +
+      `Conexiones ${connSum.ok}/${connSum.total} OK`;
   }
 }
 
@@ -1704,6 +2103,9 @@ function loadLocalVersion() {
     if (qs("#ind-roof")) qs("#ind-roof").value = b.roof ?? "dos_aguas";
   }
   updateIndustrialLabels();
+
+  // ✅ recomputar conexiones/checks
+  computeAndAttachConnectionChecks(state.model);
 
   if (ps) ps.textContent = `Versión cargada (v${state.version}).`;
   renderBOMFromModel();
@@ -1811,11 +2213,7 @@ async function loadRemoteVersion() {
   }
 
   try {
-    const { data, error } = await supa
-      .from("project_versions")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(1);
+    const { data, error } = await supa.from("project_versions").select("*").order("created_at", { ascending: false }).limit(1);
 
     if (error) {
       status.textContent = `Error: ${error.message}`;
@@ -1840,6 +2238,8 @@ async function loadRemoteVersion() {
       if (qs("#ind-roof")) qs("#ind-roof").value = b.roof ?? "dos_aguas";
       updateIndustrialLabels();
     }
+
+    computeAndAttachConnectionChecks(state.model);
 
     status.textContent = "Versión cargada desde Supabase.";
     renderBOMFromModel();
