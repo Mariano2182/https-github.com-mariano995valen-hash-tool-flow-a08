@@ -5,7 +5,9 @@
 //    - Columnas -> IfcColumn
 //    - Vigas/Cabios -> IfcBeam
 //    - Correas/Largueros -> IfcMember
-//    - Representación: IfcExtrudedAreaSolid (rectángulo) orientado por placement (eje local Z = dirección de la barra)
+// ✅ AHORA: Secciones reales (I / C / Z) en IFC y Preview 3D
+//    - IFC: IfcArbitraryClosedProfileDef + IfcExtrudedAreaSolid
+//    - Preview 3D: THREE.Shape + ExtrudeGeometry
 
 const qs = (sel, parent = document) => parent.querySelector(sel);
 const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
@@ -67,6 +69,155 @@ function nowISO() {
 const FASTENER_CATALOG = {
   bulon_m16: { label: "Bulón hex M16", kg_each: 0.14 },
 };
+
+// -------------------- PERFILES (SECCIÓN REAL) --------------------
+// Dimensiones en METROS (m). Sin radios (simplificado, pero con forma real).
+// kind: "I" (IPE/HEB), "C" (Canal), "Z" (Zeta)
+const PROFILE_CATALOG = {
+  // Primaria (ejemplo)
+  IPE300: { kind: "I", h: 0.300, b: 0.150, tw: 0.007, tf: 0.011 },
+  HEB300: { kind: "I", h: 0.300, b: 0.300, tw: 0.011, tf: 0.019 },
+
+  // Secundaria (ejemplo)
+  C200: { kind: "C", h: 0.200, b: 0.070, t: 0.003 },
+  Z200: { kind: "Z", h: 0.200, b: 0.070, t: 0.003 },
+};
+
+// Perfil default por tipo de elemento del modelo
+function defaultProfileForElementType(type) {
+  if (type === "columna") return "HEB300";
+  if (type === "viga" || type === "cabio") return "IPE300";
+  if (type === "correas") return "Z200";
+  if (type === "correas_columna") return "C200";
+  return "IPE300";
+}
+
+function getProfileSpec(codeOrType) {
+  const code = PROFILE_CATALOG[codeOrType] ? codeOrType : defaultProfileForElementType(codeOrType);
+  const spec = PROFILE_CATALOG[code] || PROFILE_CATALOG.IPE300;
+  return { code, ...spec };
+}
+
+// Contorno 2D cerrado, centrado en (0,0). Devuelve [{x,y}, ...] con cierre.
+function profilePolygon(spec) {
+  const k = spec.kind;
+
+  if (k === "I") {
+    const h = spec.h,
+      b = spec.b,
+      tw = spec.tw,
+      tf = spec.tf;
+
+    const x0 = -b / 2,
+      x1 = -tw / 2,
+      x2 = tw / 2,
+      x3 = b / 2;
+    const y0 = -h / 2,
+      y1 = y0 + tf,
+      y2 = h / 2 - tf,
+      y3 = h / 2;
+
+    return [
+      { x: x0, y: y0 },
+      { x: x3, y: y0 },
+      { x: x3, y: y1 },
+      { x: x2, y: y1 },
+      { x: x2, y: y2 },
+      { x: x3, y: y2 },
+      { x: x3, y: y3 },
+      { x: x0, y: y3 },
+      { x: x0, y: y2 },
+      { x: x1, y: y2 },
+      { x: x1, y: y1 },
+      { x: x0, y: y1 },
+      { x: x0, y: y0 },
+    ];
+  }
+
+  if (k === "C") {
+    const h = spec.h,
+      b = spec.b,
+      t = spec.t;
+
+    const x0 = -b / 2,
+      x3 = b / 2;
+    const x1 = x0 + t,
+      x2 = x3 - t;
+
+    const y0 = -h / 2,
+      y3 = h / 2;
+    const y1 = y0 + t,
+      y2 = y3 - t;
+
+    // "C" sólida simplificada (tipo U)
+    return [
+      { x: x0, y: y0 },
+      { x: x3, y: y0 },
+      { x: x3, y: y1 },
+      { x: x1, y: y1 },
+      { x: x1, y: y2 },
+      { x: x3, y: y2 },
+      { x: x3, y: y3 },
+      { x: x0, y: y3 },
+      { x: x0, y: y0 },
+    ];
+  }
+
+  if (k === "Z") {
+    const h = spec.h,
+      b = spec.b,
+      t = spec.t;
+
+    const y0 = -h / 2,
+      y3 = h / 2;
+    const y1 = y0 + t,
+      y2 = y3 - t;
+
+    // Z simplificada (sin labios), sólida
+    // ala superior hacia +X; ala inferior hacia -X
+    const xTop0 = -t / 2;
+    const xTop1 = xTop0 + b;
+
+    const xBot1 = t / 2;
+    const xBot0 = xBot1 - b;
+
+    return [
+      // ala inferior
+      { x: xBot0, y: y0 },
+      { x: xBot1, y: y0 },
+      { x: xBot1, y: y1 },
+
+      // alma (sube)
+      { x: t / 2, y: y1 },
+      { x: t / 2, y: y2 },
+      { x: -t / 2, y: y2 },
+      { x: -t / 2, y: y1 },
+
+      // ala superior
+      { x: xTop0, y: y2 },
+      { x: xTop1, y: y2 },
+      { x: xTop1, y: y3 },
+      { x: xTop0, y: y3 },
+      { x: xTop0, y: y2 },
+
+      // cierre “por atrás” (simplificación)
+      { x: -t / 2, y: y2 },
+      { x: xBot0, y: y2 },
+      { x: xBot0, y: y0 },
+    ];
+  }
+
+  // fallback: rectángulo
+  const w = Math.max(0.08, spec.b || 0.12);
+  const hh = Math.max(0.08, spec.h || 0.12);
+  return [
+    { x: -w / 2, y: -hh / 2 },
+    { x: w / 2, y: -hh / 2 },
+    { x: w / 2, y: hh / 2 },
+    { x: -w / 2, y: hh / 2 },
+    { x: -w / 2, y: -hh / 2 },
+  ];
+}
 
 // Calcula bulones M16 para el modelo paramétrico (estimación)
 function estimateBoltsM16(model) {
@@ -958,11 +1109,6 @@ function buildSegmentsFromModel(model) {
   const halfSpan = span / 2;
   const step = frames > 1 ? length / (frames - 1) : length;
 
-  const colSize = Math.max(0.12, span * 0.006);
-  const rafterSize = Math.max(0.1, span * 0.005);
-  const purlinSize = Math.max(0.06, span * 0.0035);
-  const girtSize = Math.max(0.05, span * 0.003);
-
   function roofY(x) {
     if (roof === "plana") return height;
     if (roof === "una_agua") {
@@ -974,11 +1120,24 @@ function buildSegmentsFromModel(model) {
   }
 
   const segs = [];
-  function pushSeg(kind, name, a, c, size) {
+
+  function elementTypeFrom(kind, name) {
+    if (kind === "COLUMN") return "columna";
+    if (kind === "BEAM") return name?.startsWith("BEAM-") ? "viga" : "cabio";
+    // MEMBER: correas vs largueros
+    if (String(name || "").startsWith("GIRT-")) return "correas_columna";
+    return "correas";
+  }
+
+  function pushSeg(kind, name, a, c) {
     const dir = vSub(c, a);
     const len = vLen(dir);
     if (len <= 1e-6) return;
-    segs.push({ kind, name, a, b: c, size, length: len });
+
+    const type = elementTypeFrom(kind, name);
+    const profile = getProfileSpec(type);
+
+    segs.push({ kind, name, a, b: c, profileSpec: profile, length: len, type });
   }
 
   // pórticos
@@ -995,22 +1154,22 @@ function buildSegmentsFromModel(model) {
     const baseL = v3(-halfSpan, 0, z);
     const baseR = v3(halfSpan, 0, z);
 
-    pushSeg("COLUMN", `COL-L-${i + 1}`, baseL, topL, colSize);
-    pushSeg("COLUMN", `COL-R-${i + 1}`, baseR, topR, colSize);
+    pushSeg("COLUMN", `COL-L-${i + 1}`, baseL, topL);
+    pushSeg("COLUMN", `COL-R-${i + 1}`, baseR, topR);
 
     if (roof === "plana") {
       const a = v3(-halfSpan, roofY(-halfSpan), z);
       const c = v3(halfSpan, roofY(halfSpan), z);
-      pushSeg("BEAM", `BEAM-${i + 1}`, a, c, rafterSize);
+      pushSeg("BEAM", `BEAM-${i + 1}`, a, c);
     } else if (roof === "una_agua") {
-      pushSeg("BEAM", `RAF-${i + 1}`, topL, topR, rafterSize);
+      pushSeg("BEAM", `RAF-${i + 1}`, topL, topR);
     } else {
       const eaveL = v3(-halfSpan, height, z);
       const eaveR = v3(halfSpan, height, z);
       const ridge = v3(0, height + halfSpan * slope, z);
 
-      pushSeg("BEAM", `RAF-L-${i + 1}`, eaveL, ridge, rafterSize);
-      pushSeg("BEAM", `RAF-R-${i + 1}`, ridge, eaveR, rafterSize);
+      pushSeg("BEAM", `RAF-L-${i + 1}`, eaveL, ridge);
+      pushSeg("BEAM", `RAF-R-${i + 1}`, ridge, eaveR);
     }
   }
 
@@ -1025,17 +1184,17 @@ function buildSegmentsFromModel(model) {
 
       for (let k = 0; k <= halfLines; k++) {
         const x = -halfSpan + (k / halfLines) * halfSpan;
-        pushSeg("MEMBER", `PURLIN-L-${bay + 1}-${k + 1}`, v3(x, roofY(x), z0), v3(x, roofY(x), z1), purlinSize);
+        pushSeg("MEMBER", `PURLIN-L-${bay + 1}-${k + 1}`, v3(x, roofY(x), z0), v3(x, roofY(x), z1));
       }
       for (let k = 1; k <= halfLines; k++) {
         const x = (k / halfLines) * halfSpan;
-        pushSeg("MEMBER", `PURLIN-R-${bay + 1}-${k + 1}`, v3(x, roofY(x), z0), v3(x, roofY(x), z1), purlinSize);
+        pushSeg("MEMBER", `PURLIN-R-${bay + 1}-${k + 1}`, v3(x, roofY(x), z0), v3(x, roofY(x), z1));
       }
-      pushSeg("MEMBER", `PURLIN-RIDGE-${bay + 1}`, v3(0, roofY(0), z0), v3(0, roofY(0), z1), purlinSize);
+      pushSeg("MEMBER", `PURLIN-RIDGE-${bay + 1}`, v3(0, roofY(0), z0), v3(0, roofY(0), z1));
     } else {
       for (let k = 0; k <= linesAcross; k++) {
         const x = -halfSpan + (k / linesAcross) * span;
-        pushSeg("MEMBER", `PURLIN-${bay + 1}-${k + 1}`, v3(x, roofY(x), z0), v3(x, roofY(x), z1), purlinSize);
+        pushSeg("MEMBER", `PURLIN-${bay + 1}-${k + 1}`, v3(x, roofY(x), z0), v3(x, roofY(x), z1));
       }
     }
   }
@@ -1057,11 +1216,11 @@ function buildSegmentsFromModel(model) {
 
     for (let i = 0; i < levelsL; i++) {
       const y = Math.min(maxYL, startY + i * girtSpacing);
-      pushSeg("MEMBER", `GIRT-L-${bay + 1}-${i + 1}`, v3(-halfSpan, y, z0), v3(-halfSpan, y, z1), girtSize);
+      pushSeg("MEMBER", `GIRT-L-${bay + 1}-${i + 1}`, v3(-halfSpan, y, z0), v3(-halfSpan, y, z1));
     }
     for (let i = 0; i < levelsR; i++) {
       const y = Math.min(maxYR, startY + i * girtSpacing);
-      pushSeg("MEMBER", `GIRT-R-${bay + 1}-${i + 1}`, v3(halfSpan, y, z0), v3(halfSpan, y, z1), girtSize);
+      pushSeg("MEMBER", `GIRT-R-${bay + 1}-${i + 1}`, v3(halfSpan, y, z0), v3(halfSpan, y, z1));
     }
   }
 
@@ -1189,18 +1348,27 @@ class IFCWriter {
     return lp;
   }
 
-  makeExtrudedRectShape({ context, width, height, depth }) {
-    const origin2d = this.add("IFCCARTESIANPOINT", `(0.,0.)`);
+  // ✅ Perfil arbitrario cerrado extruido (sección real)
+  makeExtrudedProfileShape({ context, profileSpec, depth }) {
+    const pts = profilePolygon(profileSpec);
+
+    // IFCPOLYLINE: lista de IFCCARTESIANPOINT 2D
+    const ptIds = pts.map((p) => this.add("IFCCARTESIANPOINT", `(${ifcNum(p.x)},${ifcNum(p.y)})`));
+    const poly = this.add("IFCPOLYLINE", ifcList(ptIds.map((id) => ifcRef(id))));
+
     const prof = this.add(
-      "IFCRECTANGLEPROFILEDEF",
-      `.AREA.,${ifcStr("")},$,${ifcRef(origin2d)},${ifcNum(width)},${ifcNum(height)}`
+      "IFCARBITRARYCLOSEDPROFILEDEF",
+      `.AREA.,${ifcStr(profileSpec.code || "")},$,${ifcRef(poly)}`
     );
 
     const solidPosPt = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
     const solidPos = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(solidPosPt)},$,$`);
-
     const extrudeDir = this.add("IFCDIRECTION", ifcDir(v3(0, 0, 1)));
-    const solid = this.add("IFCEXTRUDEDAREASOLID", `${ifcRef(prof)},${ifcRef(solidPos)},${ifcRef(extrudeDir)},${ifcNum(depth)}`);
+
+    const solid = this.add(
+      "IFCEXTRUDEDAREASOLID",
+      `${ifcRef(prof)},${ifcRef(solidPos)},${ifcRef(extrudeDir)},${ifcNum(depth)}`
+    );
 
     const bodyRep = this.add(
       "IFCSHAPEREPRESENTATION",
@@ -1211,17 +1379,18 @@ class IFCWriter {
     return pds;
   }
 
-  addLinearProduct({ ownerHistory, storeyPlacement, context, kind, name, start, end, size }) {
+  addLinearProduct({ ownerHistory, storeyPlacement, context, kind, name, start, end, profileSpec }) {
     const dir = vSub(end, start);
     const len = vLen(dir);
     const dirUnit = vNorm(dir);
 
     const placement = this.makeMemberPlacement({ storeyPlacement, start, dirUnit });
 
-    const w = Math.max(0.02, Number(size) || 0.08);
-    const h = w;
-
-    const shape = this.makeExtrudedRectShape({ context, width: w, height: h, depth: len });
+    const shape = this.makeExtrudedProfileShape({
+      context,
+      profileSpec: profileSpec || getProfileSpec("IPE300"),
+      depth: len,
+    });
 
     const ent = kind === "COLUMN" ? "IFCCOLUMN" : kind === "BEAM" ? "IFCBEAM" : "IFCMEMBER";
     const prod = this.add(ent, `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(name)},${ifcStr("")},$,${ifcRef(placement)},${ifcRef(shape)},$,$`);
@@ -1258,7 +1427,7 @@ async function exportIFC() {
         name: s.name,
         start: s.a,
         end: s.b,
-        size: s.size,
+        profileSpec: s.profileSpec,
       });
       prodIds.push(pid);
     }
@@ -1277,7 +1446,7 @@ async function exportIFC() {
     ].join("\n");
 
     downloadText(fileName, ifcText, "application/octet-stream");
-    if (st) st.textContent = `IFC4 exportado (REAL): ${prodIds.length} elementos — archivo ${fileName}`;
+    if (st) st.textContent = `IFC4 exportado (SECCIÓN REAL): ${prodIds.length} elementos — archivo ${fileName}`;
   } catch (err) {
     if (st) st.textContent = `Error exportando IFC: ${err?.message || err}`;
   }
@@ -1467,22 +1636,35 @@ function resetViewer() {
   if (st) st.textContent = "Visor reiniciado. Preview se reinicia al generar modelo.";
 }
 
-function addMember(THREE, parent, a, b, thickness, material) {
+// ✅ Preview con sección real: ExtrudeGeometry(Shape)
+function addMember(THREE, parent, a, b, profileSpec, material) {
   const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length();
   if (len <= 0.0001) return;
 
-  const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
+  const pts = profilePolygon(profileSpec);
+  const shape = new THREE.Shape();
+  shape.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i].x, pts[i].y);
 
-  // largo en eje Z
-  const geom = new THREE.BoxGeometry(thickness, thickness, len);
+  const geom = new THREE.ExtrudeGeometry(shape, {
+    depth: len,
+    bevelEnabled: false,
+    steps: 1,
+  });
+
   const mesh = new THREE.Mesh(geom, material);
 
-  mesh.position.copy(mid);
-
+  // La extrusión va en +Z local, alineamos con dir (a->b)
   const zAxis = new THREE.Vector3(0, 0, 1);
-  const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.normalize());
+  const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.clone().normalize());
   mesh.quaternion.copy(q);
+
+  // centrar: extruye 0..len, movemos geometría a -len/2 para que el mesh quede en mid
+  geom.translate(0, 0, -len / 2);
+
+  const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
+  mesh.position.copy(mid);
 
   parent.add(mesh);
 }
@@ -1525,10 +1707,10 @@ async function renderParametricPreview() {
   const matPurlin = new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.1, roughness: 0.7 });
   const matGirt = new THREE.MeshStandardMaterial({ color: 0x93c5fd, metalness: 0.1, roughness: 0.75 });
 
-  const colSize = Math.max(0.12, span * 0.006);
-  const rafterSize = Math.max(0.1, span * 0.005);
-  const purlinSize = Math.max(0.06, span * 0.0035);
-  const girtSize = Math.max(0.05, span * 0.003);
+  const profCol = getProfileSpec("columna");
+  const profBeam = getProfileSpec("cabio"); // incluye cabios y vigas planas
+  const profPurl = getProfileSpec("correas");
+  const profGirt = getProfileSpec("correas_columna");
 
   function roofY(x) {
     if (roof === "plana") return height;
@@ -1554,20 +1736,28 @@ async function renderParametricPreview() {
 
     const baseL = new THREE.Vector3(-halfSpan, 0, z);
     const baseR = new THREE.Vector3(halfSpan, 0, z);
-    addMember(THREE, group, baseL, topL, colSize, matCol);
-    addMember(THREE, group, baseR, topR, colSize, matCol);
+
+    addMember(THREE, group, baseL, topL, profCol, matCol);
+    addMember(THREE, group, baseR, topR, profCol, matCol);
 
     if (roof === "plana") {
-      addMember(THREE, group, new THREE.Vector3(-halfSpan, roofY(-halfSpan), z), new THREE.Vector3(halfSpan, roofY(halfSpan), z), rafterSize, matRafter);
+      addMember(
+        THREE,
+        group,
+        new THREE.Vector3(-halfSpan, roofY(-halfSpan), z),
+        new THREE.Vector3(halfSpan, roofY(halfSpan), z),
+        profBeam,
+        matRafter
+      );
     } else if (roof === "una_agua") {
-      addMember(THREE, group, topL, topR, rafterSize, matRafter);
+      addMember(THREE, group, topL, topR, profBeam, matRafter);
     } else {
       const eaveL = new THREE.Vector3(-halfSpan, height, z);
       const eaveR = new THREE.Vector3(halfSpan, height, z);
       const ridge = new THREE.Vector3(0, height + halfSpan * slope, z);
 
-      addMember(THREE, group, eaveL, ridge, rafterSize, matRafter);
-      addMember(THREE, group, ridge, eaveR, rafterSize, matRafter);
+      addMember(THREE, group, eaveL, ridge, profBeam, matRafter);
+      addMember(THREE, group, ridge, eaveR, profBeam, matRafter);
     }
   }
 
@@ -1582,19 +1772,19 @@ async function renderParametricPreview() {
 
       for (let k = 0; k <= halfLines; k++) {
         const x = -halfSpan + (k / halfLines) * halfSpan;
-        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), purlinSize, matPurlin);
+        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
       }
 
       for (let k = 1; k <= halfLines; k++) {
         const x = (k / halfLines) * halfSpan;
-        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), purlinSize, matPurlin);
+        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
       }
 
-      addMember(THREE, group, new THREE.Vector3(0, roofY(0), z0), new THREE.Vector3(0, roofY(0), z1), purlinSize, matPurlin);
+      addMember(THREE, group, new THREE.Vector3(0, roofY(0), z0), new THREE.Vector3(0, roofY(0), z1), profPurl, matPurlin);
     } else {
       for (let k = 0; k <= linesAcross; k++) {
         const x = -halfSpan + (k / linesAcross) * span;
-        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), purlinSize, matPurlin);
+        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
       }
     }
   }
@@ -1615,12 +1805,12 @@ async function renderParametricPreview() {
 
     for (let i = 0; i < levelsL; i++) {
       const y = Math.min(maxYL, startY + i * girtSpacing);
-      addMember(THREE, group, new THREE.Vector3(-halfSpan, y, z0), new THREE.Vector3(-halfSpan, y, z1), girtSize, matGirt);
+      addMember(THREE, group, new THREE.Vector3(-halfSpan, y, z0), new THREE.Vector3(-halfSpan, y, z1), profGirt, matGirt);
     }
 
     for (let i = 0; i < levelsR; i++) {
       const y = Math.min(maxYR, startY + i * girtSpacing);
-      addMember(THREE, group, new THREE.Vector3(halfSpan, y, z0), new THREE.Vector3(halfSpan, y, z1), girtSize, matGirt);
+      addMember(THREE, group, new THREE.Vector3(halfSpan, y, z0), new THREE.Vector3(halfSpan, y, z1), profGirt, matGirt);
     }
   }
 
