@@ -69,7 +69,24 @@ function nowISO() {
 const FASTENER_CATALOG = {
   bulon_m16: { label: "Bulón hex M16", kg_each: 0.14 },
 };
+// -------------------- CONEXIONES PARAMÉTRICAS (RMM STRUCTURES) --------------------
+const CONNECTION_CATALOG = {
+  base_plate_m16: {
+    kind: "BASE_PLATE",
+    plate: { w: 0.30, d: 0.30, t: 0.016 },     // ancho, profundidad, espesor (m)
+    bolt: { type: "bulon_m16", dia: 0.016, head: 0.024, nut: 0.024, len: 0.22 },
+    pattern: { nx: 2, nz: 2, sx: 0.18, sz: 0.18, edgeX: 0.06, edgeZ: 0.06 }, // patrón sobre la placa
+    qtyPerConnection: 4
+  },
 
+  knee_rigid_m16: {
+    kind: "KNEE_RIGID",
+    plate: { w: 0.22, h: 0.28, t: 0.012 },     // placa vertical (w x h), espesor t
+    bolt: { type: "bulon_m16", dia: 0.016, head: 0.024, nut: 0.024, len: 0.12 },
+    pattern: { nx: 2, ny: 3, sx: 0.12, sy: 0.08, edgeX: 0.05, edgeY: 0.05 },
+    qtyPerConnection: 6
+  },
+};
 // -------------------- PERFILES (SECCIÓN REAL) --------------------
 // Dimensiones en METROS (m). Sin radios (simplificado, pero con forma real).
 // kind: "I" (IPE/HEB), "C" (Canal), "Z" (Zeta)
