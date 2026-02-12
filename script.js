@@ -1567,6 +1567,9 @@ ground.position.y = -groundThickness / 2;
 
 scene.add(ground);
     
+    renderer.shadowMap.enabled = true;
+dir.castShadow = true;
+ground.receiveShadow = true;
     const axes = new AxesHelper(8);
     scene.add(axes);
 
