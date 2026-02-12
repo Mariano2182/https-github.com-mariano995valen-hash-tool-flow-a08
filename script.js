@@ -1226,7 +1226,175 @@ function buildSegmentsFromModel(model) {
 
   return segs;
 }
+// -------------------- CONEXIONES PARAMÉTRICAS (RMM) --------------------
+// Devuelve features para el preview: PLATE y BOLT_GROUP (en ejes locales)
+function buildConnectionsFromModel(model) {
+  const b = model?.building;
+  if (!b) return [];
 
+  const { span, length, height, frames, roof, slope } = b;
+
+  const halfSpan = span / 2;
+  const step = frames > 1 ? length / (frames - 1) : length;
+
+  // helpers vectoriales simples (reutilizamos v3/vSub/vLen/vNorm de IFC)
+  const V = (x, y, z) => ({ x, y, z });
+  const add = (a, b) => V(a.x + b.x, a.y + b.y, a.z + b.z);
+  const mul = (a, s) => V(a.x * s, a.y * s, a.z * s);
+  const norm = (a) => vNorm(a);
+
+  const feats = [];
+
+  // ---- Especificaciones base (en metros) ----
+  const basePlate = {
+    w: 0.30, h: 0.30, t: 0.020, // placa
+    bolt_d: 0.016, bolt_len: 0.080,
+    // patrón (X/Y del plano placa): 2x2
+    pattern: [
+      { x: -0.10, y: -0.10 },
+      { x:  0.10, y: -0.10 },
+      { x: -0.10, y:  0.10 },
+      { x:  0.10, y:  0.10 },
+    ],
+  };
+
+  const kneePlate = {
+    w: 0.26, h: 0.20, t: 0.012,
+    bolt_d: 0.016, bolt_len: 0.070,
+    // patrón (X/Y del plano placa): 2 columnas x 3 filas
+    pattern: [
+      { x: -0.06, y: -0.06 },
+      { x:  0.06, y: -0.06 },
+      { x: -0.06, y:  0.00 },
+      { x:  0.06, y:  0.00 },
+      { x: -0.06, y:  0.06 },
+      { x:  0.06, y:  0.06 },
+    ],
+  };
+
+  // calcula cota de cubierta
+  function roofY(x) {
+    if (roof === "plana") return height;
+    if (roof === "una_agua") {
+      const t = (x + halfSpan) / span;
+      return height + t * (span * slope);
+    }
+    const t = Math.abs(x) / halfSpan;
+    return height + (1 - t) * (halfSpan * slope);
+  }
+
+  // 1) Placas base por columna (2 por pórtico)
+  for (let i = 0; i < frames; i++) {
+    const z = i * step;
+
+    const bases = [
+      { name: `BASE-PLATE-L-${i + 1}`, at: V(-halfSpan, 0, z) },
+      { name: `BASE-PLATE-R-${i + 1}`, at: V( halfSpan, 0, z) },
+    ];
+
+    for (const bp of bases) {
+      // PLACA horizontal: axisZ = +Y (sale hacia arriba), axisX = +X
+      feats.push({
+        kind: "PLATE",
+        name: bp.name,
+        origin: V(bp.at.x, bp.at.y + basePlate.t / 2, bp.at.z),
+        axisZ: V(0, 1, 0),
+        axisX: V(1, 0, 0),
+        w: basePlate.w,
+        h: basePlate.h,
+        t: basePlate.t,
+      });
+
+      feats.push({
+        kind: "BOLT_GROUP",
+        name: bp.name.replace("PLATE", "BOLTS"),
+        origin: V(bp.at.x, bp.at.y + basePlate.t / 2, bp.at.z),
+        axisZ: V(0, 1, 0), // bulón atraviesa placa verticalmente
+        axisX: V(1, 0, 0),
+        pattern: basePlate.pattern,
+        bolt_d: basePlate.bolt_d,
+        bolt_len: basePlate.bolt_len,
+      });
+    }
+  }
+
+  // 2) Placas de rodilla (columna-cabio) por pórtico (izq/der)
+  for (let i = 0; i < frames; i++) {
+    const z = i * step;
+
+    const eaveL = V(-halfSpan, height, z);
+    const eaveR = V( halfSpan, height, z);
+
+    // dirección del cabio en el pórtico (para orientar placa)
+    let rafDirL, rafDirR;
+
+    if (roof === "plana") {
+      rafDirL = V(1, 0, 0);
+      rafDirR = V(-1, 0, 0);
+    } else if (roof === "una_agua") {
+      // raf único: topL->topR
+      rafDirL = norm(V(span, span * slope, 0));
+      rafDirR = norm(V(-span, -span * slope, 0));
+    } else {
+      // dos aguas: eave->ridge
+      const ridge = V(0, height + halfSpan * slope, z);
+      rafDirL = norm(vSub(ridge, eaveL));
+      rafDirR = norm(vSub(ridge, eaveR));
+    }
+
+    // normal de placa: “mirando” hacia adentro (aprox hacia el centro)
+    const nL = norm(V(1, 0, 0));   // desde columna izq hacia interior
+    const nR = norm(V(-1, 0, 0));  // desde columna der hacia interior
+
+    const off = 0.02; // separa un toque para que no z-fightee con el perfil
+
+    // IZQ
+    feats.push({
+      kind: "PLATE",
+      name: `KNEE-PLATE-L-${i + 1}`,
+      origin: add(eaveL, mul(nL, off)),
+      axisZ: nL,                 // espesor sale en normal
+      axisX: rafDirL,            // “ancho” orientado hacia el cabio
+      w: kneePlate.w,
+      h: kneePlate.h,
+      t: kneePlate.t,
+    });
+    feats.push({
+      kind: "BOLT_GROUP",
+      name: `KNEE-BOLTS-L-${i + 1}`,
+      origin: add(eaveL, mul(nL, off)),
+      axisZ: nL,
+      axisX: rafDirL,
+      pattern: kneePlate.pattern,
+      bolt_d: kneePlate.bolt_d,
+      bolt_len: kneePlate.bolt_len,
+    });
+
+    // DER
+    feats.push({
+      kind: "PLATE",
+      name: `KNEE-PLATE-R-${i + 1}`,
+      origin: add(eaveR, mul(nR, off)),
+      axisZ: nR,
+      axisX: rafDirR,
+      w: kneePlate.w,
+      h: kneePlate.h,
+      t: kneePlate.t,
+    });
+    feats.push({
+      kind: "BOLT_GROUP",
+      name: `KNEE-BOLTS-R-${i + 1}`,
+      origin: add(eaveR, mul(nR, off)),
+      axisZ: nR,
+      axisX: rafDirR,
+      pattern: kneePlate.pattern,
+      bolt_d: kneePlate.bolt_d,
+      bolt_len: kneePlate.bolt_len,
+    });
+  }
+
+  return feats;
+}
 // ---- IFC Writer minimal (IFC4) ----
 class IFCWriter {
   constructor({ projectName = "RMM Project", schema = "IFC4" } = {}) {
