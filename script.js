@@ -1126,21 +1126,104 @@ function ifcPt(v) {
   return `(${ifcNum(v.x)},${ifcNum(v.y)},${ifcNum(v.z)})`;
 }
 
-// ---- Segmentación geométrica desde el modelo paramétrico ----
+// ============================================================================
+// =============== PERFILES PARAMÉTRICOS + SEGMENTOS + CONEXIONES ==============
+// ============================================================================
+
+// Catálogo base (metros). Ajustalo a tu librería real RMM.
+// Nota: esto NO cambia pesos, solo geometría/representación.
+const RMM_PROFILE_CATALOG = {
+  // Primarios
+  columna: { shape: "I", family: "HEB", h: 0.30, b: 0.30, tw: 0.011, tf: 0.019, r: 0.015 },
+  viga:    { shape: "I", family: "IPE", h: 0.30, b: 0.15, tw: 0.007, tf: 0.011, r: 0.012 },
+  cabio:   { shape: "I", family: "IPE", h: 0.24, b: 0.12, tw: 0.006, tf: 0.010, r: 0.010 },
+
+  // Secundarios (ejemplo típico: correas C / Z)
+  correas:          { shape: "C", family: "C",  h: 0.160, b: 0.060, t: 0.0025, lip: 0.015, r: 0.004 },
+  correas_columna:  { shape: "Z", family: "Z",  h: 0.160, b: 0.060, t: 0.0025, lip: 0.015, r: 0.004 },
+
+  // Fallback
+  default: { shape: "RHS", family: "RHS", h: 0.10, b: 0.10, t: 0.004, r: 0.005 },
+};
+
+function clampNum(x, a, b, fallback = a) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(a, Math.min(b, n));
+}
+
+/**
+ * Devuelve un "profileSpec" paramétrico por tipo lógico (columna/cabio/viga/correas/...)
+ * Si querés, podés conectar esto a tu selector UI de perfiles.
+ */
+function getProfileSpec(type, building = null) {
+  const base = RMM_PROFILE_CATALOG[type] || RMM_PROFILE_CATALOG.default;
+  const out = { ...base };
+
+  // Escalado suave si hay building (opcional)
+  // (Esto evita que perfiles queden ridículos para spans enormes o naves chicas)
+  const span = building?.span;
+  if (Number.isFinite(span)) {
+    const s = clampNum(span, 10, 60, 24);
+
+    if (type === "columna") {
+      // 10m -> 0.20m, 60m -> 0.45m
+      const h = 0.20 + (s - 10) * (0.25 / 50);
+      out.h = clampNum(h, 0.20, 0.45, out.h);
+      out.b = clampNum(out.h, 0.18, 0.45, out.b);
+    }
+
+    if (type === "viga" || type === "cabio") {
+      // 10m -> 0.18m, 60m -> 0.40m
+      const h = 0.18 + (s - 10) * (0.22 / 50);
+      out.h = clampNum(h, 0.18, 0.40, out.h);
+      out.b = clampNum(out.h * 0.5, 0.09, 0.22, out.b);
+    }
+
+    if (type === "correas" || type === "correas_columna") {
+      // 10m -> 120mm, 60m -> 220mm
+      const h = 0.12 + (s - 10) * (0.10 / 50);
+      out.h = clampNum(h, 0.12, 0.22, out.h);
+      out.b = clampNum(out.h * 0.4, 0.05, 0.09, out.b);
+      out.t = clampNum(out.t, 0.0018, 0.0040, out.t);
+      out.lip = clampNum(out.lip, 0.010, 0.025, out.lip);
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Segmentación geométrica desde el modelo paramétrico.
+ * Devuelve: [{kind,name,a,b,profileSpec,length,type}, ...]
+ */
 function buildSegmentsFromModel(model) {
   const b = model?.building;
   if (!b) return [];
 
-  const { span, length, height, frames, roof, slope, purlinSpacing, girtSpacing } = b;
+  const span = Number(b.span) || 0;
+  const length = Number(b.length) || 0;
+  const height = Number(b.height) || 0;
+  const frames = Math.max(0, Number(b.frames) || 0);
+  const roof = b.roof || "dos_aguas";
+  const slope = Number(b.slope) || 0.1;
+  const purlinSpacing = Number(b.purlinSpacing) || 1.5;
+  const girtSpacing = Number(b.girtSpacing) || 1.5;
+
+  if (span <= 0 || length <= 0 || height <= 0 || frames < 2) return [];
+
   const halfSpan = span / 2;
   const step = frames > 1 ? length / (frames - 1) : length;
 
   function roofY(x) {
     if (roof === "plana") return height;
+
     if (roof === "una_agua") {
       const t = (x + halfSpan) / span;
       return height + t * (span * slope);
     }
+
+    // dos aguas
     const t = Math.abs(x) / halfSpan;
     return height + (1 - t) * (halfSpan * slope);
   }
@@ -1149,7 +1232,7 @@ function buildSegmentsFromModel(model) {
 
   function elementTypeFrom(kind, name) {
     if (kind === "COLUMN") return "columna";
-    if (kind === "BEAM") return name?.startsWith("BEAM-") ? "viga" : "cabio";
+    if (kind === "BEAM") return String(name || "").startsWith("BEAM-") ? "viga" : "cabio";
     // MEMBER: correas vs largueros
     if (String(name || "").startsWith("GIRT-")) return "correas_columna";
     return "correas";
@@ -1161,12 +1244,20 @@ function buildSegmentsFromModel(model) {
     if (len <= 1e-6) return;
 
     const type = elementTypeFrom(kind, name);
-    const profile = getProfileSpec(type);
+    const profileSpec = getProfileSpec(type, b);
 
-    segs.push({ kind, name, a, b: c, profileSpec: profile, length: len, type });
+    segs.push({
+      kind,
+      name,
+      a,
+      b: c,
+      profileSpec,
+      length: len,
+      type,
+    });
   }
 
-  // pórticos
+  // ---------------- PÓRTICOS ----------------
   for (let i = 0; i < frames; i++) {
     const z = i * step;
 
@@ -1184,9 +1275,7 @@ function buildSegmentsFromModel(model) {
     pushSeg("COLUMN", `COL-R-${i + 1}`, baseR, topR);
 
     if (roof === "plana") {
-      const a = v3(-halfSpan, roofY(-halfSpan), z);
-      const c = v3(halfSpan, roofY(halfSpan), z);
-      pushSeg("BEAM", `BEAM-${i + 1}`, a, c);
+      pushSeg("BEAM", `BEAM-${i + 1}`, v3(-halfSpan, roofY(-halfSpan), z), v3(halfSpan, roofY(halfSpan), z));
     } else if (roof === "una_agua") {
       pushSeg("BEAM", `RAF-${i + 1}`, topL, topR);
     } else {
@@ -1199,8 +1288,9 @@ function buildSegmentsFromModel(model) {
     }
   }
 
-  // correas
+  // ---------------- CORREAS TECHO ----------------
   const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
+
   for (let bay = 0; bay < frames - 1; bay++) {
     const z0 = bay * step;
     const z1 = (bay + 1) * step;
@@ -1216,6 +1306,7 @@ function buildSegmentsFromModel(model) {
         const x = (k / halfLines) * halfSpan;
         pushSeg("MEMBER", `PURLIN-R-${bay + 1}-${k + 1}`, v3(x, roofY(x), z0), v3(x, roofY(x), z1));
       }
+      // cumbrera
       pushSeg("MEMBER", `PURLIN-RIDGE-${bay + 1}`, v3(0, roofY(0), z0), v3(0, roofY(0), z1));
     } else {
       for (let k = 0; k <= linesAcross; k++) {
@@ -1225,7 +1316,7 @@ function buildSegmentsFromModel(model) {
     }
   }
 
-  // largueros
+  // ---------------- LARGUEROS ----------------
   for (let bay = 0; bay < frames - 1; bay++) {
     const z0 = bay * step;
     const z1 = (bay + 1) * step;
@@ -1251,6 +1342,180 @@ function buildSegmentsFromModel(model) {
   }
 
   return segs;
+}
+
+/**
+ * Conexiones paramétricas “reales” (base) para RMM STRUCTURES.
+ * Esto NO dibuja nada por sí solo: devuelve “features” que después podés renderizar
+ * en Three.js y/o exportar a IFC (IfcPlate, IfcFastener, etc).
+ */
+function buildConnectionsFromModel(model) {
+  const b = model?.building;
+  if (!b) return [];
+
+  const span = Number(b.span) || 0;
+  const length = Number(b.length) || 0;
+  const height = Number(b.height) || 0;
+  const frames = Math.max(0, Number(b.frames) || 0);
+  const roof = b.roof || "dos_aguas";
+  const slope = Number(b.slope) || 0.1;
+  const purlinSpacing = Number(b.purlinSpacing) || 1.5;
+  const girtSpacing = Number(b.girtSpacing) || 1.5;
+
+  if (span <= 0 || length <= 0 || height <= 0 || frames < 2) return [];
+
+  const halfSpan = span / 2;
+  const step = frames > 1 ? length / (frames - 1) : length;
+
+  function roofY(x) {
+    if (roof === "plana") return height;
+
+    if (roof === "una_agua") {
+      const t = (x + halfSpan) / span;
+      return height + t * (span * slope);
+    }
+
+    const t = Math.abs(x) / halfSpan;
+    return height + (1 - t) * (halfSpan * slope);
+  }
+
+  // Parámetros conexión (m) — ajustables a tu estándar RMM
+  const PLATE_T = 0.012;      // 12mm
+  const PLATE_W = 0.220;      // 220mm
+  const PLATE_H = 0.300;      // 300mm
+  const GUSSET_T = 0.010;     // 10mm
+  const BOLT_D = 0.016;       // M16
+  const EDGE = 0.035;         // 35mm borde
+
+  const features = [];
+
+  function addPlate(name, origin, axisZ, axisX, w, h, t) {
+    features.push({
+      kind: "PLATE",
+      name,
+      origin,
+      axisZ, // dirección “normal” placa
+      axisX, // dirección ancho
+      w,
+      h,
+      t,
+    });
+  }
+
+  function addBoltGroup(name, origin, axisZ, axisX, pattern) {
+    features.push({
+      kind: "BOLT_GROUP",
+      name,
+      origin,
+      axisZ,
+      axisX,
+      bolt_d: BOLT_D,
+      pattern, // [{x,y},...]
+    });
+  }
+
+  // Helper: patrón 2x2
+  function pattern2x2(w, h, edge = EDGE) {
+    const x = w / 2 - edge;
+    const y = h / 2 - edge;
+    return [
+      { x: -x, y: -y },
+      { x:  x, y: -y },
+      { x: -x, y:  y },
+      { x:  x, y:  y },
+    ];
+  }
+
+  // ------------- CONEXIONES POR PÓRTICO -------------
+  for (let i = 0; i < frames; i++) {
+    const z = i * step;
+
+    // Nudos rodilla (izq/der)
+    const kneeL = v3(-halfSpan, height, z);
+    const kneeR = roof === "una_agua" ? v3(halfSpan, height + span * slope, z) : v3(halfSpan, height, z);
+
+    // Placa rodilla: normal aprox hacia el “plano del pórtico” (eje Z global)
+    // (Para algo real, después usamos el eje de las barras para orientar)
+    addPlate(`KNEE-PLATE-L-${i + 1}`, kneeL, v3(0, 0, 1), v3(1, 0, 0), PLATE_W, PLATE_H, PLATE_T);
+    addBoltGroup(`KNEE-BOLTS-L-${i + 1}`, kneeL, v3(0, 0, 1), v3(1, 0, 0), pattern2x2(PLATE_W, PLATE_H));
+
+    addPlate(`KNEE-PLATE-R-${i + 1}`, kneeR, v3(0, 0, 1), v3(1, 0, 0), PLATE_W, PLATE_H, PLATE_T);
+    addBoltGroup(`KNEE-BOLTS-R-${i + 1}`, kneeR, v3(0, 0, 1), v3(1, 0, 0), pattern2x2(PLATE_W, PLATE_H));
+  }
+
+  // ------------- CUMBRERA (solo dos aguas) -------------
+  if (roof === "dos_aguas") {
+    for (let i = 0; i < frames; i++) {
+      const z = i * step;
+      const ridge = v3(0, height + halfSpan * slope, z);
+
+      // Cartela/gusset en cumbrera
+      addPlate(`RIDGE-GUSSET-${i + 1}`, ridge, v3(0, 0, 1), v3(1, 0, 0), 0.260, 0.260, GUSSET_T);
+      addBoltGroup(`RIDGE-BOLTS-${i + 1}`, ridge, v3(0, 0, 1), v3(1, 0, 0), pattern2x2(0.260, 0.260, 0.040));
+    }
+  }
+
+  // ------------- APOYOS DE CORREAS (techo) -------------
+  const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
+
+  for (let bay = 0; bay < frames - 1; bay++) {
+    const z0 = bay * step;
+
+    // sobre pórtico en z0 (apoyo en cada frame)
+    const z = z0;
+
+    if (roof === "dos_aguas") {
+      const halfLines = Math.max(1, Math.floor(linesAcross / 2));
+
+      for (let k = 0; k <= halfLines; k++) {
+        const x = -halfSpan + (k / halfLines) * halfSpan;
+        const p = v3(x, roofY(x), z);
+        addPlate(`PURLIN-SEAT-L-${bay + 1}-${k + 1}`, p, v3(0, 1, 0), v3(1, 0, 0), 0.120, 0.080, 0.008);
+      }
+      for (let k = 1; k <= halfLines; k++) {
+        const x = (k / halfLines) * halfSpan;
+        const p = v3(x, roofY(x), z);
+        addPlate(`PURLIN-SEAT-R-${bay + 1}-${k + 1}`, p, v3(0, 1, 0), v3(1, 0, 0), 0.120, 0.080, 0.008);
+      }
+      const pr = v3(0, roofY(0), z);
+      addPlate(`PURLIN-SEAT-RIDGE-${bay + 1}`, pr, v3(0, 1, 0), v3(1, 0, 0), 0.120, 0.080, 0.008);
+    } else {
+      for (let k = 0; k <= linesAcross; k++) {
+        const x = -halfSpan + (k / linesAcross) * span;
+        const p = v3(x, roofY(x), z);
+        addPlate(`PURLIN-SEAT-${bay + 1}-${k + 1}`, p, v3(0, 1, 0), v3(1, 0, 0), 0.120, 0.080, 0.008);
+      }
+    }
+  }
+
+  // ------------- APOYOS DE LARGUEROS (pared) -------------
+  for (let bay = 0; bay < frames - 1; bay++) {
+    const z = bay * step;
+
+    const topL = height;
+    const topR = roof === "una_agua" ? height + span * slope : height;
+
+    const startY = 1.2;
+    const maxYL = Math.max(startY, topL - 0.3);
+    const maxYR = Math.max(startY, topR - 0.3);
+
+    const levelsL = Math.max(2, Math.floor((maxYL - startY) / Math.max(0.1, girtSpacing)) + 1);
+    const levelsR = Math.max(2, Math.floor((maxYR - startY) / Math.max(0.1, girtSpacing)) + 1);
+
+    for (let i = 0; i < levelsL; i++) {
+      const y = Math.min(maxYL, startY + i * girtSpacing);
+      const p = v3(-halfSpan, y, z);
+      addPlate(`GIRT-TAB-L-${bay + 1}-${i + 1}`, p, v3(1, 0, 0), v3(0, 1, 0), 0.080, 0.060, 0.006);
+    }
+
+    for (let i = 0; i < levelsR; i++) {
+      const y = Math.min(maxYR, startY + i * girtSpacing);
+      const p = v3(halfSpan, y, z);
+      addPlate(`GIRT-TAB-R-${bay + 1}-${i + 1}`, p, v3(1, 0, 0), v3(0, 1, 0), 0.080, 0.060, 0.006);
+    }
+  }
+
+  return features;
 }
 
 // ---- IFC Writer minimal (IFC4) ----
