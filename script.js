@@ -1730,7 +1730,7 @@ async function ensurePreview3D() {
     controls.rotateSpeed = 0.35;     // rotación más lenta
     controls.zoomSpeed = 0.60;       // zoom más lento
     controls.panSpeed = 0.45;        // paneo más lento
-    controls.minDistance = 10;
+    controls.minDistance = 0.5;
     controls.maxDistance = 250;
     controls.screenSpacePanning = true;
     controls.target.set(0, 6, 20);
