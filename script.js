@@ -1717,6 +1717,10 @@ function addMember(THREE, parent, a, b, profileSpec, material) {
   const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
   mesh.position.copy(mid);
 
+  // ✅ sombras
+  mesh.castShadow = true;
+  mesh.receiveShadow = false;
+
   parent.add(mesh);
 }
 
