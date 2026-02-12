@@ -69,24 +69,7 @@ function nowISO() {
 const FASTENER_CATALOG = {
   bulon_m16: { label: "Bulón hex M16", kg_each: 0.14 },
 };
-// -------------------- CONEXIONES PARAMÉTRICAS (RMM STRUCTURES) --------------------
-const CONNECTION_CATALOG = {
-  base_plate_m16: {
-    kind: "BASE_PLATE",
-    plate: { w: 0.30, d: 0.30, t: 0.016 },     // ancho, profundidad, espesor (m)
-    bolt: { type: "bulon_m16", dia: 0.016, head: 0.024, nut: 0.024, len: 0.22 },
-    pattern: { nx: 2, nz: 2, sx: 0.18, sz: 0.18, edgeX: 0.06, edgeZ: 0.06 }, // patrón sobre la placa
-    qtyPerConnection: 4
-  },
 
-  knee_rigid_m16: {
-    kind: "KNEE_RIGID",
-    plate: { w: 0.22, h: 0.28, t: 0.012 },     // placa vertical (w x h), espesor t
-    bolt: { type: "bulon_m16", dia: 0.016, head: 0.024, nut: 0.024, len: 0.12 },
-    pattern: { nx: 2, ny: 3, sx: 0.12, sy: 0.08, edgeX: 0.05, edgeY: 0.05 },
-    qtyPerConnection: 6
-  },
-};
 // -------------------- PERFILES (SECCIÓN REAL) --------------------
 // Dimensiones en METROS (m). Sin radios (simplificado, pero con forma real).
 // kind: "I" (IPE/HEB), "C" (Canal), "Z" (Zeta)
@@ -285,18 +268,9 @@ function estimateBoltsM16(model) {
 function upsertBoltsIntoModel(model) {
   if (!model?.elements) return;
 
-  function estimateBoltsM16(model) {
-  const conns = buildConnectionsFromModel(model);
-  let qty = 0;
-
-  for (const c of conns) {
-    const spec = CONNECTION_CATALOG[c.type];
-    if (!spec) continue;
-    if (spec.bolt?.type === "bulon_m16") qty += Number(spec.qtyPerConnection || 0);
-  }
-
-  return { qty, breakdown: { byConnections: qty } };
-}
+  const { qty, breakdown } = estimateBoltsM16(model);
+  const spec = FASTENER_CATALOG.bulon_m16;
+  const weightKg = qty * (spec?.kg_each || 0);
 
   model.elements = model.elements.filter((e) => e.type !== "bulon_m16");
 
@@ -1126,104 +1100,21 @@ function ifcPt(v) {
   return `(${ifcNum(v.x)},${ifcNum(v.y)},${ifcNum(v.z)})`;
 }
 
-// ============================================================================
-// =============== PERFILES PARAMÉTRICOS + SEGMENTOS + CONEXIONES ==============
-// ============================================================================
-
-// Catálogo base (metros). Ajustalo a tu librería real RMM.
-// Nota: esto NO cambia pesos, solo geometría/representación.
-const RMM_PROFILE_CATALOG = {
-  // Primarios
-  columna: { shape: "I", family: "HEB", h: 0.30, b: 0.30, tw: 0.011, tf: 0.019, r: 0.015 },
-  viga:    { shape: "I", family: "IPE", h: 0.30, b: 0.15, tw: 0.007, tf: 0.011, r: 0.012 },
-  cabio:   { shape: "I", family: "IPE", h: 0.24, b: 0.12, tw: 0.006, tf: 0.010, r: 0.010 },
-
-  // Secundarios (ejemplo típico: correas C / Z)
-  correas:          { shape: "C", family: "C",  h: 0.160, b: 0.060, t: 0.0025, lip: 0.015, r: 0.004 },
-  correas_columna:  { shape: "Z", family: "Z",  h: 0.160, b: 0.060, t: 0.0025, lip: 0.015, r: 0.004 },
-
-  // Fallback
-  default: { shape: "RHS", family: "RHS", h: 0.10, b: 0.10, t: 0.004, r: 0.005 },
-};
-
-function clampNum(x, a, b, fallback = a) {
-  const n = Number(x);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(a, Math.min(b, n));
-}
-
-/**
- * Devuelve un "profileSpec" paramétrico por tipo lógico (columna/cabio/viga/correas/...)
- * Si querés, podés conectar esto a tu selector UI de perfiles.
- */
-function getProfileSpec(type, building = null) {
-  const base = RMM_PROFILE_CATALOG[type] || RMM_PROFILE_CATALOG.default;
-  const out = { ...base };
-
-  // Escalado suave si hay building (opcional)
-  // (Esto evita que perfiles queden ridículos para spans enormes o naves chicas)
-  const span = building?.span;
-  if (Number.isFinite(span)) {
-    const s = clampNum(span, 10, 60, 24);
-
-    if (type === "columna") {
-      // 10m -> 0.20m, 60m -> 0.45m
-      const h = 0.20 + (s - 10) * (0.25 / 50);
-      out.h = clampNum(h, 0.20, 0.45, out.h);
-      out.b = clampNum(out.h, 0.18, 0.45, out.b);
-    }
-
-    if (type === "viga" || type === "cabio") {
-      // 10m -> 0.18m, 60m -> 0.40m
-      const h = 0.18 + (s - 10) * (0.22 / 50);
-      out.h = clampNum(h, 0.18, 0.40, out.h);
-      out.b = clampNum(out.h * 0.5, 0.09, 0.22, out.b);
-    }
-
-    if (type === "correas" || type === "correas_columna") {
-      // 10m -> 120mm, 60m -> 220mm
-      const h = 0.12 + (s - 10) * (0.10 / 50);
-      out.h = clampNum(h, 0.12, 0.22, out.h);
-      out.b = clampNum(out.h * 0.4, 0.05, 0.09, out.b);
-      out.t = clampNum(out.t, 0.0018, 0.0040, out.t);
-      out.lip = clampNum(out.lip, 0.010, 0.025, out.lip);
-    }
-  }
-
-  return out;
-}
-
-/**
- * Segmentación geométrica desde el modelo paramétrico.
- * Devuelve: [{kind,name,a,b,profileSpec,length,type}, ...]
- */
+// ---- Segmentación geométrica desde el modelo paramétrico ----
 function buildSegmentsFromModel(model) {
   const b = model?.building;
   if (!b) return [];
 
-  const span = Number(b.span) || 0;
-  const length = Number(b.length) || 0;
-  const height = Number(b.height) || 0;
-  const frames = Math.max(0, Number(b.frames) || 0);
-  const roof = b.roof || "dos_aguas";
-  const slope = Number(b.slope) || 0.1;
-  const purlinSpacing = Number(b.purlinSpacing) || 1.5;
-  const girtSpacing = Number(b.girtSpacing) || 1.5;
-
-  if (span <= 0 || length <= 0 || height <= 0 || frames < 2) return [];
-
+  const { span, length, height, frames, roof, slope, purlinSpacing, girtSpacing } = b;
   const halfSpan = span / 2;
   const step = frames > 1 ? length / (frames - 1) : length;
 
   function roofY(x) {
     if (roof === "plana") return height;
-
     if (roof === "una_agua") {
       const t = (x + halfSpan) / span;
       return height + t * (span * slope);
     }
-
-    // dos aguas
     const t = Math.abs(x) / halfSpan;
     return height + (1 - t) * (halfSpan * slope);
   }
@@ -1232,7 +1123,7 @@ function buildSegmentsFromModel(model) {
 
   function elementTypeFrom(kind, name) {
     if (kind === "COLUMN") return "columna";
-    if (kind === "BEAM") return String(name || "").startsWith("BEAM-") ? "viga" : "cabio";
+    if (kind === "BEAM") return name?.startsWith("BEAM-") ? "viga" : "cabio";
     // MEMBER: correas vs largueros
     if (String(name || "").startsWith("GIRT-")) return "correas_columna";
     return "correas";
@@ -1244,20 +1135,12 @@ function buildSegmentsFromModel(model) {
     if (len <= 1e-6) return;
 
     const type = elementTypeFrom(kind, name);
-    const profileSpec = getProfileSpec(type, b);
+    const profile = getProfileSpec(type);
 
-    segs.push({
-      kind,
-      name,
-      a,
-      b: c,
-      profileSpec,
-      length: len,
-      type,
-    });
+    segs.push({ kind, name, a, b: c, profileSpec: profile, length: len, type });
   }
 
-  // ---------------- PÓRTICOS ----------------
+  // pórticos
   for (let i = 0; i < frames; i++) {
     const z = i * step;
 
@@ -1275,7 +1158,9 @@ function buildSegmentsFromModel(model) {
     pushSeg("COLUMN", `COL-R-${i + 1}`, baseR, topR);
 
     if (roof === "plana") {
-      pushSeg("BEAM", `BEAM-${i + 1}`, v3(-halfSpan, roofY(-halfSpan), z), v3(halfSpan, roofY(halfSpan), z));
+      const a = v3(-halfSpan, roofY(-halfSpan), z);
+      const c = v3(halfSpan, roofY(halfSpan), z);
+      pushSeg("BEAM", `BEAM-${i + 1}`, a, c);
     } else if (roof === "una_agua") {
       pushSeg("BEAM", `RAF-${i + 1}`, topL, topR);
     } else {
@@ -1288,9 +1173,8 @@ function buildSegmentsFromModel(model) {
     }
   }
 
-  // ---------------- CORREAS TECHO ----------------
+  // correas
   const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
-
   for (let bay = 0; bay < frames - 1; bay++) {
     const z0 = bay * step;
     const z1 = (bay + 1) * step;
@@ -1306,7 +1190,6 @@ function buildSegmentsFromModel(model) {
         const x = (k / halfLines) * halfSpan;
         pushSeg("MEMBER", `PURLIN-R-${bay + 1}-${k + 1}`, v3(x, roofY(x), z0), v3(x, roofY(x), z1));
       }
-      // cumbrera
       pushSeg("MEMBER", `PURLIN-RIDGE-${bay + 1}`, v3(0, roofY(0), z0), v3(0, roofY(0), z1));
     } else {
       for (let k = 0; k <= linesAcross; k++) {
@@ -1316,7 +1199,7 @@ function buildSegmentsFromModel(model) {
     }
   }
 
-  // ---------------- LARGUEROS ----------------
+  // largueros
   for (let bay = 0; bay < frames - 1; bay++) {
     const z0 = bay * step;
     const z1 = (bay + 1) * step;
@@ -1342,180 +1225,6 @@ function buildSegmentsFromModel(model) {
   }
 
   return segs;
-}
-
-/**
- * Conexiones paramétricas “reales” (base) para RMM STRUCTURES.
- * Esto NO dibuja nada por sí solo: devuelve “features” que después podés renderizar
- * en Three.js y/o exportar a IFC (IfcPlate, IfcFastener, etc).
- */
-function buildConnectionsFromModel(model) {
-  const b = model?.building;
-  if (!b) return [];
-
-  const span = Number(b.span) || 0;
-  const length = Number(b.length) || 0;
-  const height = Number(b.height) || 0;
-  const frames = Math.max(0, Number(b.frames) || 0);
-  const roof = b.roof || "dos_aguas";
-  const slope = Number(b.slope) || 0.1;
-  const purlinSpacing = Number(b.purlinSpacing) || 1.5;
-  const girtSpacing = Number(b.girtSpacing) || 1.5;
-
-  if (span <= 0 || length <= 0 || height <= 0 || frames < 2) return [];
-
-  const halfSpan = span / 2;
-  const step = frames > 1 ? length / (frames - 1) : length;
-
-  function roofY(x) {
-    if (roof === "plana") return height;
-
-    if (roof === "una_agua") {
-      const t = (x + halfSpan) / span;
-      return height + t * (span * slope);
-    }
-
-    const t = Math.abs(x) / halfSpan;
-    return height + (1 - t) * (halfSpan * slope);
-  }
-
-  // Parámetros conexión (m) — ajustables a tu estándar RMM
-  const PLATE_T = 0.012;      // 12mm
-  const PLATE_W = 0.220;      // 220mm
-  const PLATE_H = 0.300;      // 300mm
-  const GUSSET_T = 0.010;     // 10mm
-  const BOLT_D = 0.016;       // M16
-  const EDGE = 0.035;         // 35mm borde
-
-  const features = [];
-
-  function addPlate(name, origin, axisZ, axisX, w, h, t) {
-    features.push({
-      kind: "PLATE",
-      name,
-      origin,
-      axisZ, // dirección “normal” placa
-      axisX, // dirección ancho
-      w,
-      h,
-      t,
-    });
-  }
-
-  function addBoltGroup(name, origin, axisZ, axisX, pattern) {
-    features.push({
-      kind: "BOLT_GROUP",
-      name,
-      origin,
-      axisZ,
-      axisX,
-      bolt_d: BOLT_D,
-      pattern, // [{x,y},...]
-    });
-  }
-
-  // Helper: patrón 2x2
-  function pattern2x2(w, h, edge = EDGE) {
-    const x = w / 2 - edge;
-    const y = h / 2 - edge;
-    return [
-      { x: -x, y: -y },
-      { x:  x, y: -y },
-      { x: -x, y:  y },
-      { x:  x, y:  y },
-    ];
-  }
-
-  // ------------- CONEXIONES POR PÓRTICO -------------
-  for (let i = 0; i < frames; i++) {
-    const z = i * step;
-
-    // Nudos rodilla (izq/der)
-    const kneeL = v3(-halfSpan, height, z);
-    const kneeR = roof === "una_agua" ? v3(halfSpan, height + span * slope, z) : v3(halfSpan, height, z);
-
-    // Placa rodilla: normal aprox hacia el “plano del pórtico” (eje Z global)
-    // (Para algo real, después usamos el eje de las barras para orientar)
-    addPlate(`KNEE-PLATE-L-${i + 1}`, kneeL, v3(0, 0, 1), v3(1, 0, 0), PLATE_W, PLATE_H, PLATE_T);
-    addBoltGroup(`KNEE-BOLTS-L-${i + 1}`, kneeL, v3(0, 0, 1), v3(1, 0, 0), pattern2x2(PLATE_W, PLATE_H));
-
-    addPlate(`KNEE-PLATE-R-${i + 1}`, kneeR, v3(0, 0, 1), v3(1, 0, 0), PLATE_W, PLATE_H, PLATE_T);
-    addBoltGroup(`KNEE-BOLTS-R-${i + 1}`, kneeR, v3(0, 0, 1), v3(1, 0, 0), pattern2x2(PLATE_W, PLATE_H));
-  }
-
-  // ------------- CUMBRERA (solo dos aguas) -------------
-  if (roof === "dos_aguas") {
-    for (let i = 0; i < frames; i++) {
-      const z = i * step;
-      const ridge = v3(0, height + halfSpan * slope, z);
-
-      // Cartela/gusset en cumbrera
-      addPlate(`RIDGE-GUSSET-${i + 1}`, ridge, v3(0, 0, 1), v3(1, 0, 0), 0.260, 0.260, GUSSET_T);
-      addBoltGroup(`RIDGE-BOLTS-${i + 1}`, ridge, v3(0, 0, 1), v3(1, 0, 0), pattern2x2(0.260, 0.260, 0.040));
-    }
-  }
-
-  // ------------- APOYOS DE CORREAS (techo) -------------
-  const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
-
-  for (let bay = 0; bay < frames - 1; bay++) {
-    const z0 = bay * step;
-
-    // sobre pórtico en z0 (apoyo en cada frame)
-    const z = z0;
-
-    if (roof === "dos_aguas") {
-      const halfLines = Math.max(1, Math.floor(linesAcross / 2));
-
-      for (let k = 0; k <= halfLines; k++) {
-        const x = -halfSpan + (k / halfLines) * halfSpan;
-        const p = v3(x, roofY(x), z);
-        addPlate(`PURLIN-SEAT-L-${bay + 1}-${k + 1}`, p, v3(0, 1, 0), v3(1, 0, 0), 0.120, 0.080, 0.008);
-      }
-      for (let k = 1; k <= halfLines; k++) {
-        const x = (k / halfLines) * halfSpan;
-        const p = v3(x, roofY(x), z);
-        addPlate(`PURLIN-SEAT-R-${bay + 1}-${k + 1}`, p, v3(0, 1, 0), v3(1, 0, 0), 0.120, 0.080, 0.008);
-      }
-      const pr = v3(0, roofY(0), z);
-      addPlate(`PURLIN-SEAT-RIDGE-${bay + 1}`, pr, v3(0, 1, 0), v3(1, 0, 0), 0.120, 0.080, 0.008);
-    } else {
-      for (let k = 0; k <= linesAcross; k++) {
-        const x = -halfSpan + (k / linesAcross) * span;
-        const p = v3(x, roofY(x), z);
-        addPlate(`PURLIN-SEAT-${bay + 1}-${k + 1}`, p, v3(0, 1, 0), v3(1, 0, 0), 0.120, 0.080, 0.008);
-      }
-    }
-  }
-
-  // ------------- APOYOS DE LARGUEROS (pared) -------------
-  for (let bay = 0; bay < frames - 1; bay++) {
-    const z = bay * step;
-
-    const topL = height;
-    const topR = roof === "una_agua" ? height + span * slope : height;
-
-    const startY = 1.2;
-    const maxYL = Math.max(startY, topL - 0.3);
-    const maxYR = Math.max(startY, topR - 0.3);
-
-    const levelsL = Math.max(2, Math.floor((maxYL - startY) / Math.max(0.1, girtSpacing)) + 1);
-    const levelsR = Math.max(2, Math.floor((maxYR - startY) / Math.max(0.1, girtSpacing)) + 1);
-
-    for (let i = 0; i < levelsL; i++) {
-      const y = Math.min(maxYL, startY + i * girtSpacing);
-      const p = v3(-halfSpan, y, z);
-      addPlate(`GIRT-TAB-L-${bay + 1}-${i + 1}`, p, v3(1, 0, 0), v3(0, 1, 0), 0.080, 0.060, 0.006);
-    }
-
-    for (let i = 0; i < levelsR; i++) {
-      const y = Math.min(maxYR, startY + i * girtSpacing);
-      const p = v3(halfSpan, y, z);
-      addPlate(`GIRT-TAB-R-${bay + 1}-${i + 1}`, p, v3(1, 0, 0), v3(0, 1, 0), 0.080, 0.060, 0.006);
-    }
-  }
-
-  return features;
 }
 
 // ---- IFC Writer minimal (IFC4) ----
@@ -1548,70 +1257,7 @@ class IFCWriter {
       "DATA;",
     ].join("\n");
   }
-function buildConnectionsFromModel(model) {
-  const b = model?.building;
-  if (!b) return [];
 
-  const { span, length, height, frames, roof, slope } = b;
-  const halfSpan = span / 2;
-  const step = frames > 1 ? length / (frames - 1) : length;
-
-  const conns = [];
-
-  function roofY(x) {
-    if (roof === "plana") return height;
-    if (roof === "una_agua") {
-      const t = (x + halfSpan) / span;
-      return height + t * (span * slope);
-    }
-    const t = Math.abs(x) / halfSpan;
-    return height + (1 - t) * (halfSpan * slope);
-  }
-
-  for (let i = 0; i < frames; i++) {
-    const z = i * step;
-
-    // --- BASE PLATES (una por columna) ---
-    conns.push({
-      id: `BP-L-${i + 1}`,
-      type: "base_plate_m16",
-      at: { x: -halfSpan, y: 0, z },
-      normal: { x: 0, y: 1, z: 0 },
-      yaw: 0
-    });
-    conns.push({
-      id: `BP-R-${i + 1}`,
-      type: "base_plate_m16",
-      at: { x: halfSpan, y: 0, z },
-      normal: { x: 0, y: 1, z: 0 },
-      yaw: 0
-    });
-
-    // --- KNEE RIGID (columna↔cabio/viga) ---
-    const topL = { x: -halfSpan, y: height, z };
-    const topR = roof === "una_agua" ? { x: halfSpan, y: height + span * slope, z } : { x: halfSpan, y: height, z };
-
-    // left knee
-    conns.push({
-      id: `KN-L-${i + 1}`,
-      type: "knee_rigid_m16",
-      at: { x: topL.x, y: topL.y - 0.20, z: topL.z }, // bajamos un poco para “zona de unión”
-      normal: { x: 1, y: 0, z: 0 },                   // placa “mirando” hacia el interior
-      yaw: 0
-    });
-
-    // right knee
-    conns.push({
-      id: `KN-R-${i + 1}`,
-      type: "knee_rigid_m16",
-      at: { x: topR.x, y: topR.y - 0.20, z: topR.z },
-      normal: { x: -1, y: 0, z: 0 },
-      yaw: 0
-    });
-  }
-
-  return conns;
-}
   footer() {
     return ["ENDSEC;", "END-ISO-10303-21;"].join("\n");
   }
@@ -1874,16 +1520,12 @@ async function ensurePreview3D() {
     state.preview.THREE = THREE;
     state.preview.OrbitControls = oc.OrbitControls;
 
-    const { WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, AxesHelper, AmbientLight, DirectionalLight } = THREE;
+    const { WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, AxesHelper, GridHelper, AmbientLight, DirectionalLight } = THREE;
 
     container.innerHTML = "";
 
     const renderer = new WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-
-    // ✅ SOMBRAS: habilitar apenas existe el renderer (antes de luces/mesh)
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     const w0 = container.clientWidth || Math.max(320, Math.floor(window.innerWidth * 0.6));
     const h0 = container.clientHeight || 520; // ✅ FIX: evita height 0 => canvas invisible
@@ -1899,35 +1541,12 @@ async function ensurePreview3D() {
 
     const controls = new state.preview.OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.03;   // más suave
-    controls.rotateSpeed = 0.35;     // rotación más lenta
-    controls.zoomSpeed = 0.6;        // zoom más lento
-    controls.panSpeed = 0.45;        // paneo más lento
-    controls.minDistance = 10;
-    controls.maxDistance = 250;
-    controls.screenSpacePanning = true;
+    controls.dampingFactor = 0.06;
     controls.target.set(0, 6, 20);
 
-    // --- SUELO SÓLIDO BLANCO ---
-    const groundSize = 300;
-    const groundThickness = 0.5;
-
-    const groundGeometry = new THREE.BoxGeometry(groundSize, groundThickness, groundSize);
-    const groundMaterial = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      roughness: 0.9,
-      metalness: 0.0,
-    });
-
-    const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-
-    // lo bajamos medio espesor para que el "0" quede arriba
-    ground.position.y = -groundThickness / 2;
-
-    // ✅ Recibe sombras
-    ground.receiveShadow = true;
-
-    scene.add(ground);
+    const grid = new GridHelper(300, 120);
+    grid.position.y = 0;
+    scene.add(grid);
 
     const axes = new AxesHelper(8);
     scene.add(axes);
@@ -1936,17 +1555,6 @@ async function ensurePreview3D() {
 
     const dir = new DirectionalLight(0xffffff, 0.9);
     dir.position.set(40, 60, 20);
-
-    // ✅ Luz proyecta sombras
-    dir.castShadow = true;
-
-    // ✅ Calidad de sombras (recomendado)
-    dir.shadow.mapSize.width = 2048;
-    dir.shadow.mapSize.height = 2048;
-    dir.shadow.camera.near = 1;
-    dir.shadow.camera.far = 600;
-    dir.shadow.bias = -0.0002;
-
     scene.add(dir);
 
     state.preview.renderer = renderer;
@@ -2089,22 +1697,21 @@ async function renderParametricPreview() {
   const group = new THREE.Group();
   group.name = state.preview.groupName;
 
-  const b = state.model.building;
-  const { span, length, height, frames, roof, slope, purlinSpacing, girtSpacing } = b;
+  const { span, length, height, frames, roof, slope, purlinSpacing, girtSpacing } = state.model.building;
 
   const halfSpan = span / 2;
   const step = frames > 1 ? length / (frames - 1) : length;
 
-  // -------------------- MATERIALES --------------------
   const matCol = new THREE.MeshStandardMaterial({ color: 0x2563eb, metalness: 0.2, roughness: 0.6 });
   const matRafter = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.2, roughness: 0.55 });
   const matPurlin = new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.1, roughness: 0.7 });
   const matGirt = new THREE.MeshStandardMaterial({ color: 0x93c5fd, metalness: 0.1, roughness: 0.75 });
 
-  const matPlate = new THREE.MeshStandardMaterial({ color: 0xd1d5db, metalness: 0.25, roughness: 0.55 });
-  const matBolt  = new THREE.MeshStandardMaterial({ color: 0x111827, metalness: 0.2, roughness: 0.6 });
+  const profCol = getProfileSpec("columna");
+  const profBeam = getProfileSpec("cabio"); // incluye cabios y vigas planas
+  const profPurl = getProfileSpec("correas");
+  const profGirt = getProfileSpec("correas_columna");
 
-  // -------------------- HELPERS --------------------
   function roofY(x) {
     if (roof === "plana") return height;
 
@@ -2117,99 +1724,6 @@ async function renderParametricPreview() {
     return height + (1 - t) * (halfSpan * slope);
   }
 
-  // Convierte spec a dimensiones (m) para preview
-  function dimsFromProfile(spec) {
-    const s = spec || {};
-    // I: h x b, C/Z/RHS: h x b
-    const h = Number(s.h) || 0.10;
-    const w = Number(s.b) || 0.10;
-    return { w, h };
-  }
-
-  function addMemberProfile(parent, a, b, profileSpec, material) {
-    const A = a.clone();
-    const B = b.clone();
-
-    const dir = new THREE.Vector3().subVectors(B, A);
-    const len = dir.length();
-    if (len <= 1e-6) return;
-
-    const mid = new THREE.Vector3().addVectors(A, B).multiplyScalar(0.5);
-
-    const { w, h } = dimsFromProfile(profileSpec);
-
-    // Caja orientada con eje Z local = largo del miembro
-    const geom = new THREE.BoxGeometry(w, h, len);
-    const mesh = new THREE.Mesh(geom, material);
-    mesh.position.copy(mid);
-
-    const zAxis = new THREE.Vector3(0, 0, 1);
-    const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.normalize());
-    mesh.quaternion.copy(q);
-
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-
-    parent.add(mesh);
-    return mesh;
-  }
-
-  function addPlate(parent, origin, axisZ, axisX, w, h, t, material) {
-    const geom = new THREE.BoxGeometry(w, h, t);
-    const mesh = new THREE.Mesh(geom, material);
-
-    mesh.position.set(origin.x, origin.y, origin.z);
-
-    // Orientación: construimos una base ortonormal (X, Y, Z)
-    const Z = new THREE.Vector3(axisZ.x, axisZ.y, axisZ.z).normalize();
-    let X = new THREE.Vector3(axisX.x, axisX.y, axisX.z).normalize();
-
-    // Si X viene casi paralelo a Z, lo arreglamos
-    if (Math.abs(X.dot(Z)) > 0.95) {
-      X = new THREE.Vector3(1, 0, 0);
-      if (Math.abs(X.dot(Z)) > 0.95) X = new THREE.Vector3(0, 1, 0);
-    }
-
-    const Y = new THREE.Vector3().crossVectors(Z, X).normalize();
-    X = new THREE.Vector3().crossVectors(Y, Z).normalize();
-
-    const m = new THREE.Matrix4().makeBasis(X, Y, Z);
-    mesh.quaternion.setFromRotationMatrix(m);
-
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-
-    parent.add(mesh);
-    return { mesh, X, Y, Z };
-  }
-
-  function addBolt(parent, center, axis, dia, len, material) {
-    const r = Math.max(0.003, dia / 2);
-    const geom = new THREE.CylinderGeometry(r, r, len, 14);
-    const mesh = new THREE.Mesh(geom, material);
-
-    mesh.position.set(center.x, center.y, center.z);
-
-    // cilindro por defecto en Y
-    const yAxis = new THREE.Vector3(0, 1, 0);
-    const A = new THREE.Vector3(axis.x, axis.y, axis.z).normalize();
-    mesh.quaternion.setFromUnitVectors(yAxis, A);
-
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-
-    parent.add(mesh);
-    return mesh;
-  }
-
-  // -------------------- PERFILES (paramétricos) --------------------
-  // IMPORTANTE: usar el building para el escalado suave
-  const profCol  = getProfileSpec("columna", b);
-  const profBeam = getProfileSpec("cabio", b);
-  const profPurl = getProfileSpec("correas", b);
-  const profGirt = getProfileSpec("correas_columna", b);
-
-  // -------------------- ESTRUCTURA --------------------
   for (let i = 0; i < frames; i++) {
     const z = i * step;
 
@@ -2223,11 +1737,12 @@ async function renderParametricPreview() {
     const baseL = new THREE.Vector3(-halfSpan, 0, z);
     const baseR = new THREE.Vector3(halfSpan, 0, z);
 
-    addMemberProfile(group, baseL, topL, profCol, matCol);
-    addMemberProfile(group, baseR, topR, profCol, matCol);
+    addMember(THREE, group, baseL, topL, profCol, matCol);
+    addMember(THREE, group, baseR, topR, profCol, matCol);
 
     if (roof === "plana") {
-      addMemberProfile(
+      addMember(
+        THREE,
         group,
         new THREE.Vector3(-halfSpan, roofY(-halfSpan), z),
         new THREE.Vector3(halfSpan, roofY(halfSpan), z),
@@ -2235,18 +1750,17 @@ async function renderParametricPreview() {
         matRafter
       );
     } else if (roof === "una_agua") {
-      addMemberProfile(group, topL, topR, profBeam, matRafter);
+      addMember(THREE, group, topL, topR, profBeam, matRafter);
     } else {
       const eaveL = new THREE.Vector3(-halfSpan, height, z);
       const eaveR = new THREE.Vector3(halfSpan, height, z);
       const ridge = new THREE.Vector3(0, height + halfSpan * slope, z);
 
-      addMemberProfile(group, eaveL, ridge, profBeam, matRafter);
-      addMemberProfile(group, ridge, eaveR, profBeam, matRafter);
+      addMember(THREE, group, eaveL, ridge, profBeam, matRafter);
+      addMember(THREE, group, ridge, eaveR, profBeam, matRafter);
     }
   }
 
-  // Correas techo
   const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
 
   for (let bay = 0; bay < frames - 1; bay++) {
@@ -2258,24 +1772,23 @@ async function renderParametricPreview() {
 
       for (let k = 0; k <= halfLines; k++) {
         const x = -halfSpan + (k / halfLines) * halfSpan;
-        addMemberProfile(group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
+        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
       }
 
       for (let k = 1; k <= halfLines; k++) {
         const x = (k / halfLines) * halfSpan;
-        addMemberProfile(group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
+        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
       }
 
-      addMemberProfile(group, new THREE.Vector3(0, roofY(0), z0), new THREE.Vector3(0, roofY(0), z1), profPurl, matPurlin);
+      addMember(THREE, group, new THREE.Vector3(0, roofY(0), z0), new THREE.Vector3(0, roofY(0), z1), profPurl, matPurlin);
     } else {
       for (let k = 0; k <= linesAcross; k++) {
         const x = -halfSpan + (k / linesAcross) * span;
-        addMemberProfile(group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
+        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
       }
     }
   }
 
-  // Largueros
   for (let bay = 0; bay < frames - 1; bay++) {
     const z0 = bay * step;
     const z1 = (bay + 1) * step;
@@ -2292,66 +1805,15 @@ async function renderParametricPreview() {
 
     for (let i = 0; i < levelsL; i++) {
       const y = Math.min(maxYL, startY + i * girtSpacing);
-      addMemberProfile(group, new THREE.Vector3(-halfSpan, y, z0), new THREE.Vector3(-halfSpan, y, z1), profGirt, matGirt);
+      addMember(THREE, group, new THREE.Vector3(-halfSpan, y, z0), new THREE.Vector3(-halfSpan, y, z1), profGirt, matGirt);
     }
 
     for (let i = 0; i < levelsR; i++) {
       const y = Math.min(maxYR, startY + i * girtSpacing);
-      addMemberProfile(group, new THREE.Vector3(halfSpan, y, z0), new THREE.Vector3(halfSpan, y, z1), profGirt, matGirt);
+      addMember(THREE, group, new THREE.Vector3(halfSpan, y, z0), new THREE.Vector3(halfSpan, y, z1), profGirt, matGirt);
     }
   }
 
-  // -------------------- CONEXIONES (PLACAS + BULONES) --------------------
-  // buildConnectionsFromModel devuelve features tipo:
-  // {kind:"PLATE", origin, axisZ, axisX, w,h,t} y {kind:"BOLT_GROUP", origin, axisZ, axisX, pattern:[{x,y}...]}
-  const conns = buildConnectionsFromModel(state.model);
-
-  // Para dibujar bulones coherentes con la placa, guardamos base local de cada "anchor"
-  // clave: name sin sufijo (o name exacto)
-  const plateFrames = new Map();
-
-  for (const f of conns) {
-    if (f.kind !== "PLATE") continue;
-
-    const origin = new THREE.Vector3(f.origin.x, f.origin.y, f.origin.z);
-    const axisZ  = f.axisZ || { x: 0, y: 0, z: 1 };
-    const axisX  = f.axisX || { x: 1, y: 0, z: 0 };
-
-    const { mesh, X, Y, Z } = addPlate(group, origin, axisZ, axisX, f.w, f.h, f.t, matPlate);
-    plateFrames.set(f.name, { origin, X, Y, Z, w: f.w, h: f.h, t: f.t, mesh });
-  }
-
-  for (const f of conns) {
-    if (f.kind !== "BOLT_GROUP") continue;
-
-    const frame = plateFrames.get(f.name.replace("BOLTS", "PLATE")) || plateFrames.get(f.name) || null;
-
-    // Si no encontramos placa “pareja”, usamos ejes del feature
-    const origin = frame?.origin || new THREE.Vector3(f.origin.x, f.origin.y, f.origin.z);
-    const X = frame?.X || new THREE.Vector3(f.axisX?.x ?? 1, f.axisX?.y ?? 0, f.axisX?.z ?? 0).normalize();
-    const Z = frame?.Z || new THREE.Vector3(f.axisZ?.x ?? 0, f.axisZ?.y ?? 0, f.axisZ?.z ?? 1).normalize();
-    const Y = frame?.Y || new THREE.Vector3().crossVectors(Z, X).normalize();
-
-    const boltAxis = Z;                // atraviesa la placa
-    const boltLen = 0.08;              // 80mm (demo)
-    const boltDia = Number(f.bolt_d) || 0.016;
-
-    const pattern = Array.isArray(f.pattern) ? f.pattern : [];
-    for (const p of pattern) {
-      // patrón en el plano de la placa (X/Y)
-      const cx = Number(p.x) || 0;
-      const cy = Number(p.y) || 0;
-
-      const pos = origin
-        .clone()
-        .add(X.clone().multiplyScalar(cx))
-        .add(Y.clone().multiplyScalar(cy));
-
-      addBolt(group, pos, boltAxis, boltDia, boltLen, matBolt);
-    }
-  }
-
-  // -------------------- FINAL --------------------
   scene.add(group);
   fitToGroup(THREE, state.preview.camera, state.preview.controls, group);
 
@@ -2367,6 +1829,7 @@ async function renderParametricPreview() {
       `kg/m² total(planta) ${fmt2(eng.kgm2Plan)} | prim ${fmt2(eng.kgm2PlanPrimary)} | sec ${fmt2(eng.kgm2PlanSecondary)}`;
   }
 }
+
 // -------------------- VERSIONADO LOCAL --------------------
 function localKey() {
   const name = qs("#project-name")?.value?.trim() || "rmm_project";
