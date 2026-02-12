@@ -1541,7 +1541,13 @@ async function ensurePreview3D() {
 
     const controls = new state.preview.OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.06;
+controls.dampingFactor = 0.03;   // más suave (antes 0.06)
+controls.rotateSpeed = 0.35;     // rotación más lenta
+controls.zoomSpeed = 0.6;        // zoom más lento
+controls.panSpeed = 0.45;        // paneo más lento
+    controls.minDistance = 10;
+controls.maxDistance = 250;
+    controls.screenSpacePanning = true;
     controls.target.set(0, 6, 20);
 
    // --- SUELO SÓLIDO BLANCO ---
