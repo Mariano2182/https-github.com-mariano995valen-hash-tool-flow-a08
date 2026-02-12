@@ -1274,7 +1274,70 @@ class IFCWriter {
       "DATA;",
     ].join("\n");
   }
+function buildConnectionsFromModel(model) {
+  const b = model?.building;
+  if (!b) return [];
 
+  const { span, length, height, frames, roof, slope } = b;
+  const halfSpan = span / 2;
+  const step = frames > 1 ? length / (frames - 1) : length;
+
+  const conns = [];
+
+  function roofY(x) {
+    if (roof === "plana") return height;
+    if (roof === "una_agua") {
+      const t = (x + halfSpan) / span;
+      return height + t * (span * slope);
+    }
+    const t = Math.abs(x) / halfSpan;
+    return height + (1 - t) * (halfSpan * slope);
+  }
+
+  for (let i = 0; i < frames; i++) {
+    const z = i * step;
+
+    // --- BASE PLATES (una por columna) ---
+    conns.push({
+      id: `BP-L-${i + 1}`,
+      type: "base_plate_m16",
+      at: { x: -halfSpan, y: 0, z },
+      normal: { x: 0, y: 1, z: 0 },
+      yaw: 0
+    });
+    conns.push({
+      id: `BP-R-${i + 1}`,
+      type: "base_plate_m16",
+      at: { x: halfSpan, y: 0, z },
+      normal: { x: 0, y: 1, z: 0 },
+      yaw: 0
+    });
+
+    // --- KNEE RIGID (columna↔cabio/viga) ---
+    const topL = { x: -halfSpan, y: height, z };
+    const topR = roof === "una_agua" ? { x: halfSpan, y: height + span * slope, z } : { x: halfSpan, y: height, z };
+
+    // left knee
+    conns.push({
+      id: `KN-L-${i + 1}`,
+      type: "knee_rigid_m16",
+      at: { x: topL.x, y: topL.y - 0.20, z: topL.z }, // bajamos un poco para “zona de unión”
+      normal: { x: 1, y: 0, z: 0 },                   // placa “mirando” hacia el interior
+      yaw: 0
+    });
+
+    // right knee
+    conns.push({
+      id: `KN-R-${i + 1}`,
+      type: "knee_rigid_m16",
+      at: { x: topR.x, y: topR.y - 0.20, z: topR.z },
+      normal: { x: -1, y: 0, z: 0 },
+      yaw: 0
+    });
+  }
+
+  return conns;
+}
   footer() {
     return ["ENDSEC;", "END-ISO-10303-21;"].join("\n");
   }
