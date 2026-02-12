@@ -285,9 +285,18 @@ function estimateBoltsM16(model) {
 function upsertBoltsIntoModel(model) {
   if (!model?.elements) return;
 
-  const { qty, breakdown } = estimateBoltsM16(model);
-  const spec = FASTENER_CATALOG.bulon_m16;
-  const weightKg = qty * (spec?.kg_each || 0);
+  function estimateBoltsM16(model) {
+  const conns = buildConnectionsFromModel(model);
+  let qty = 0;
+
+  for (const c of conns) {
+    const spec = CONNECTION_CATALOG[c.type];
+    if (!spec) continue;
+    if (spec.bolt?.type === "bulon_m16") qty += Number(spec.qtyPerConnection || 0);
+  }
+
+  return { qty, breakdown: { byConnections: qty } };
+}
 
   model.elements = model.elements.filter((e) => e.type !== "bulon_m16");
 
