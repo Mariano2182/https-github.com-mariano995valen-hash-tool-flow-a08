@@ -1931,22 +1931,21 @@ async function renderParametricPreview() {
   const matGirt = new THREE.MeshStandardMaterial({ color: 0x93c5fd, metalness: 0.1, roughness: 0.75 });
 
   const profCol = getProfileSpec("columna");
-  const profBeam = getProfileSpec("cabio"); // incluye cabios y vigas planas
+  const profBeam = getProfileSpec("cabio");
   const profPurl = getProfileSpec("correas");
   const profGirt = getProfileSpec("correas_columna");
 
   function roofY(x) {
     if (roof === "plana") return height;
-
     if (roof === "una_agua") {
       const t = (x + halfSpan) / span;
       return height + t * (span * slope);
     }
-
     const t = Math.abs(x) / halfSpan;
     return height + (1 - t) * (halfSpan * slope);
   }
 
+  // -------------------- ESTRUCTURA --------------------
   for (let i = 0; i < frames; i++) {
     const z = i * step;
 
@@ -2037,6 +2036,87 @@ async function renderParametricPreview() {
     }
   }
 
+  // -------------------- CONEXIONES (placas + bulones) --------------------
+  const matPlate = new THREE.MeshStandardMaterial({ color: 0xd1d5db, metalness: 0.25, roughness: 0.55 });
+  const matBolt  = new THREE.MeshStandardMaterial({ color: 0x111827, metalness: 0.2, roughness: 0.6 });
+
+  function addPlate(origin, axisZ, axisX, w, h, t) {
+    const geom = new THREE.BoxGeometry(w, h, t);
+    const mesh = new THREE.Mesh(geom, matPlate);
+    mesh.position.set(origin.x, origin.y, origin.z);
+
+    const Z = new THREE.Vector3(axisZ.x, axisZ.y, axisZ.z).normalize();
+    let X = new THREE.Vector3(axisX.x, axisX.y, axisX.z).normalize();
+    if (Math.abs(X.dot(Z)) > 0.95) X = new THREE.Vector3(1, 0, 0);
+    const Y = new THREE.Vector3().crossVectors(Z, X).normalize();
+    X = new THREE.Vector3().crossVectors(Y, Z).normalize();
+
+    const m = new THREE.Matrix4().makeBasis(X, Y, Z);
+    mesh.quaternion.setFromRotationMatrix(m);
+
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    group.add(mesh);
+    return { origin: new THREE.Vector3(origin.x, origin.y, origin.z), X, Y, Z };
+  }
+
+  function addBolt(center, axis, dia, len) {
+    const r = Math.max(0.003, dia / 2);
+    const geom = new THREE.CylinderGeometry(r, r, len, 14);
+    const mesh = new THREE.Mesh(geom, matBolt);
+
+    mesh.position.set(center.x, center.y, center.z);
+
+    const yAxis = new THREE.Vector3(0, 1, 0);
+    const A = new THREE.Vector3(axis.x, axis.y, axis.z).normalize();
+    mesh.quaternion.setFromUnitVectors(yAxis, A);
+
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    group.add(mesh);
+  }
+
+  const features = buildConnectionsFromModel(state.model);
+  const plateFrames = new Map();
+
+  for (const f of features) {
+    if (f.kind !== "PLATE") continue;
+    const frame = addPlate(f.origin, f.axisZ, f.axisX, f.w, f.h, f.t);
+    plateFrames.set(f.name, frame);
+  }
+
+  for (const f of features) {
+    if (f.kind !== "BOLT_GROUP") continue;
+
+    // emparejamos con su placa (si existe)
+    const guessPlateName = f.name.replace("BOLTS", "PLATE");
+    const frame = plateFrames.get(guessPlateName);
+
+    const origin = frame?.origin || new THREE.Vector3(f.origin.x, f.origin.y, f.origin.z);
+    const X = frame?.X || new THREE.Vector3(f.axisX.x, f.axisX.y, f.axisX.z).normalize();
+    const Y = frame?.Y || new THREE.Vector3().crossVectors(new THREE.Vector3(f.axisZ.x, f.axisZ.y, f.axisZ.z).normalize(), X).normalize();
+    const Z = frame?.Z || new THREE.Vector3(f.axisZ.x, f.axisZ.y, f.axisZ.z).normalize();
+
+    const boltAxis = Z;
+    const boltDia = Number(f.bolt_d) || 0.016;
+    const boltLen = Number(f.bolt_len) || 0.08;
+
+    for (const p of (f.pattern || [])) {
+      const cx = Number(p.x) || 0;
+      const cy = Number(p.y) || 0;
+
+      const pos = origin
+        .clone()
+        .add(X.clone().multiplyScalar(cx))
+        .add(Y.clone().multiplyScalar(cy));
+
+      addBolt(pos, boltAxis, boltDia, boltLen);
+    }
+  }
+
+  // -------------------- FINAL --------------------
   scene.add(group);
   fitToGroup(THREE, state.preview.camera, state.preview.controls, group);
 
