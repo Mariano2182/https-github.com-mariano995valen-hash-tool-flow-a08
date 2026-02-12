@@ -1520,7 +1520,19 @@ async function ensurePreview3D() {
     state.preview.THREE = THREE;
     state.preview.OrbitControls = oc.OrbitControls;
 
-    const { WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, AxesHelper, GridHelper, AmbientLight, DirectionalLight } = THREE;
+    const {
+      WebGLRenderer,
+      Scene,
+      PerspectiveCamera,
+      Color,
+      Fog,
+      AxesHelper,
+      AmbientLight,
+      DirectionalLight,
+      BoxGeometry,
+      MeshStandardMaterial,
+      Mesh
+    } = THREE;
 
     container.innerHTML = "";
 
@@ -1528,9 +1540,13 @@ async function ensurePreview3D() {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
     const w0 = container.clientWidth || Math.max(320, Math.floor(window.innerWidth * 0.6));
-    const h0 = container.clientHeight || 520; // ✅ FIX: evita height 0 => canvas invisible
+    const h0 = container.clientHeight || 520;
     renderer.setSize(w0, h0);
     container.appendChild(renderer.domElement);
+
+    // ✅ sombras
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     const scene = new Scene();
     scene.background = new Color(0x071226);
@@ -1539,22 +1555,56 @@ async function ensurePreview3D() {
     const camera = new PerspectiveCamera(55, w0 / h0, 0.1, 2000);
     camera.position.set(35, 18, 60);
 
+    // ✅ navegación suave / menos rápida
     const controls = new state.preview.OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.06;
+    controls.dampingFactor = 0.03;   // más suave (menos "nervioso")
+    controls.rotateSpeed = 0.35;     // rotación más lenta
+    controls.zoomSpeed = 0.60;       // zoom más lento
+    controls.panSpeed = 0.45;        // paneo más lento
+    controls.minDistance = 10;
+    controls.maxDistance = 250;
+    controls.screenSpacePanning = true;
     controls.target.set(0, 6, 20);
 
-    const grid = new GridHelper(300, 120);
-    grid.position.y = 0;
-    scene.add(grid);
+    // ✅ SUELO SÓLIDO BLANCO (bloque)
+    const groundSize = 320;
+    const groundThickness = 0.6;
 
+    const groundGeom = new BoxGeometry(groundSize, groundThickness, groundSize);
+    const groundMat = new MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.9,
+      metalness: 0.0
+    });
+    const ground = new Mesh(groundGeom, groundMat);
+    ground.position.y = -groundThickness / 2;
+    ground.receiveShadow = true;
+    ground.name = "RMM_GROUND";
+    scene.add(ground);
+
+    // ejes (si querés ocultarlos, comentá estas 2 líneas)
     const axes = new AxesHelper(8);
     scene.add(axes);
 
     scene.add(new AmbientLight(0xffffff, 0.55));
 
+    // ✅ direccional con sombras configuradas
     const dir = new DirectionalLight(0xffffff, 0.9);
     dir.position.set(40, 60, 20);
+    dir.castShadow = true;
+
+    dir.shadow.mapSize.width = 2048;
+    dir.shadow.mapSize.height = 2048;
+
+    // “cámara” de sombra (ajustá si cortan sombras)
+    dir.shadow.camera.near = 1;
+    dir.shadow.camera.far = 200;
+    dir.shadow.camera.left = -120;
+    dir.shadow.camera.right = 120;
+    dir.shadow.camera.top = 120;
+    dir.shadow.camera.bottom = -120;
+
     scene.add(dir);
 
     state.preview.renderer = renderer;
@@ -1586,6 +1636,7 @@ async function ensurePreview3D() {
     tick();
 
     state.preview.ready = true;
+
     const vs = qs("#viewer-status");
     if (vs) vs.textContent = "Preview activo";
     const st = qs("#ifc-status");
