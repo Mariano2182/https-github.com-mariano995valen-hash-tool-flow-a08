@@ -1564,11 +1564,6 @@ const ground = new THREE.Mesh(groundGeometry, groundMaterial);
 
 // lo bajamos medio espesor para que el "0" quede arriba
 ground.position.y = -groundThickness / 2;
-
-scene.add(ground);
-    renderer.shadowMap.enabled = true;
-dir.castShadow = true;
-ground.receiveShadow = true;
     
     const axes = new AxesHelper(8);
     scene.add(axes);
