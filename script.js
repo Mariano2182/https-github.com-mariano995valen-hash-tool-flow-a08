@@ -2089,143 +2089,22 @@ async function renderParametricPreview() {
   const group = new THREE.Group();
   group.name = state.preview.groupName;
 
-  const { span, length, height, frames, roof, slope, purlinSpacing, girtSpacing } = state.model.building;
+  const b = state.model.building;
+  const { span, length, height, frames, roof, slope, purlinSpacing, girtSpacing } = b;
 
   const halfSpan = span / 2;
   const step = frames > 1 ? length / (frames - 1) : length;
 
+  // -------------------- MATERIALES --------------------
   const matCol = new THREE.MeshStandardMaterial({ color: 0x2563eb, metalness: 0.2, roughness: 0.6 });
   const matRafter = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.2, roughness: 0.55 });
   const matPurlin = new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.1, roughness: 0.7 });
   const matGirt = new THREE.MeshStandardMaterial({ color: 0x93c5fd, metalness: 0.1, roughness: 0.75 });
 
-  const profCol = getProfileSpec("columna");
-  const profBeam = getProfileSpec("cabio"); // incluye cabios y vigas planas
-  const profPurl = getProfileSpec("correas");
-  const profGirt = getProfileSpec("correas_columna");
-function addPlate(THREE, parent, center, w, h, t, normal, material) {
-  const geom = new THREE.BoxGeometry(w, h, t);
-  const mesh = new THREE.Mesh(geom, material);
-  mesh.position.set(center.x, center.y, center.z);
-
-  // orientar placa: su eje Z local apunta a "normal"
-  const zAxis = new THREE.Vector3(0, 0, 1);
-  const n = new THREE.Vector3(normal.x, normal.y, normal.z).normalize();
-  mesh.quaternion.setFromUnitVectors(zAxis, n);
-
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-
-  parent.add(mesh);
-  return mesh;
-}
-  // ---------------- CONEXIONES (placas + bulones) ----------------
   const matPlate = new THREE.MeshStandardMaterial({ color: 0xd1d5db, metalness: 0.25, roughness: 0.55 });
   const matBolt  = new THREE.MeshStandardMaterial({ color: 0x111827, metalness: 0.2, roughness: 0.6 });
 
-  const conns = buildConnectionsFromModel(state.model);
-
-  for (const c of conns) {
-    const spec = CONNECTION_CATALOG[c.type];
-    if (!spec) continue;
-
-    if (spec.kind === "BASE_PLATE") {
-      // placa horizontal (Y)
-      addPlate(
-        THREE,
-        group,
-        new THREE.Vector3(c.at.x, c.at.y + spec.plate.t / 2, c.at.z),
-        spec.plate.w,
-        spec.plate.t,
-        spec.plate.d,
-        new THREE.Vector3(0, 1, 0),
-        matPlate
-      );
-
-      const pts = boltPatternPoints2x2(spec.pattern);
-      for (const p of pts) {
-        addBolt(
-          THREE,
-          group,
-          { x: c.at.x + p.x, y: c.at.y + 0.10, z: c.at.z + p.z },
-          { x: 0, y: 1, z: 0 },
-          spec.bolt.dia,
-          spec.bolt.len,
-          matBolt
-        );
-      }
-    }
-
-    if (spec.kind === "KNEE_RIGID") {
-      // placa vertical mirando hacia normal
-      addPlate(
-        THREE,
-        group,
-        new THREE.Vector3(c.at.x, c.at.y, c.at.z),
-        spec.plate.w,
-        spec.plate.h,
-        spec.plate.t,
-        new THREE.Vector3(c.normal.x, c.normal.y, c.normal.z),
-        matPlate
-      );
-
-      const pts = boltPatternPoints2D(spec.pattern);
-      // bulones "atraviesan" la placa en dirección normal
-      for (const p of pts) {
-        addBolt(
-          THREE,
-          group,
-          { x: c.at.x + p.x, y: c.at.y + p.y, z: c.at.z },
-          { x: c.normal.x, y: c.normal.y, z: c.normal.z },
-          spec.bolt.dia,
-          spec.bolt.len,
-          matBolt
-        );
-      }
-    }
-  }
-function addBolt(THREE, parent, p, axis, dia, len, material) {
-  const r = Math.max(0.004, dia / 2);
-  const geom = new THREE.CylinderGeometry(r, r, len, 14);
-  const mesh = new THREE.Mesh(geom, material);
-
-  const pos = new THREE.Vector3(p.x, p.y, p.z);
-  mesh.position.copy(pos);
-
-  // cilindro por defecto en Y, lo alineamos con axis
-  const yAxis = new THREE.Vector3(0, 1, 0);
-  const a = new THREE.Vector3(axis.x, axis.y, axis.z).normalize();
-  mesh.quaternion.setFromUnitVectors(yAxis, a);
-
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-
-  parent.add(mesh);
-  return mesh;
-}
-
-function boltPatternPoints2x2({ nx, nz, sx, sz, edgeX, edgeZ }) {
-  // patrón sobre placa base (X/Z)
-  const pts = [];
-  const xs = nx === 1 ? [0] : [-sx / 2, sx / 2];
-  const zs = nz === 1 ? [0] : [-sz / 2, sz / 2];
-  for (const x of xs) for (const z of zs) pts.push({ x, z });
-  return pts;
-}
-
-function boltPatternPoints2D({ nx, ny, sx, sy }) {
-  // patrón sobre placa vertical (X/Y)
-  const pts = [];
-  const xs = nx === 1 ? [0] : [-sx / 2, sx / 2];
-  const ys = [];
-  if (ny === 1) ys.push(0);
-  else {
-    const total = (ny - 1) * sy;
-    for (let i = 0; i < ny; i++) ys.push(-total / 2 + i * sy);
-  }
-  for (const x of xs) for (const y of ys) pts.push({ x, y });
-  return pts;
-}
+  // -------------------- HELPERS --------------------
   function roofY(x) {
     if (roof === "plana") return height;
 
@@ -2238,6 +2117,99 @@ function boltPatternPoints2D({ nx, ny, sx, sy }) {
     return height + (1 - t) * (halfSpan * slope);
   }
 
+  // Convierte spec a dimensiones (m) para preview
+  function dimsFromProfile(spec) {
+    const s = spec || {};
+    // I: h x b, C/Z/RHS: h x b
+    const h = Number(s.h) || 0.10;
+    const w = Number(s.b) || 0.10;
+    return { w, h };
+  }
+
+  function addMemberProfile(parent, a, b, profileSpec, material) {
+    const A = a.clone();
+    const B = b.clone();
+
+    const dir = new THREE.Vector3().subVectors(B, A);
+    const len = dir.length();
+    if (len <= 1e-6) return;
+
+    const mid = new THREE.Vector3().addVectors(A, B).multiplyScalar(0.5);
+
+    const { w, h } = dimsFromProfile(profileSpec);
+
+    // Caja orientada con eje Z local = largo del miembro
+    const geom = new THREE.BoxGeometry(w, h, len);
+    const mesh = new THREE.Mesh(geom, material);
+    mesh.position.copy(mid);
+
+    const zAxis = new THREE.Vector3(0, 0, 1);
+    const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.normalize());
+    mesh.quaternion.copy(q);
+
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    parent.add(mesh);
+    return mesh;
+  }
+
+  function addPlate(parent, origin, axisZ, axisX, w, h, t, material) {
+    const geom = new THREE.BoxGeometry(w, h, t);
+    const mesh = new THREE.Mesh(geom, material);
+
+    mesh.position.set(origin.x, origin.y, origin.z);
+
+    // Orientación: construimos una base ortonormal (X, Y, Z)
+    const Z = new THREE.Vector3(axisZ.x, axisZ.y, axisZ.z).normalize();
+    let X = new THREE.Vector3(axisX.x, axisX.y, axisX.z).normalize();
+
+    // Si X viene casi paralelo a Z, lo arreglamos
+    if (Math.abs(X.dot(Z)) > 0.95) {
+      X = new THREE.Vector3(1, 0, 0);
+      if (Math.abs(X.dot(Z)) > 0.95) X = new THREE.Vector3(0, 1, 0);
+    }
+
+    const Y = new THREE.Vector3().crossVectors(Z, X).normalize();
+    X = new THREE.Vector3().crossVectors(Y, Z).normalize();
+
+    const m = new THREE.Matrix4().makeBasis(X, Y, Z);
+    mesh.quaternion.setFromRotationMatrix(m);
+
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    parent.add(mesh);
+    return { mesh, X, Y, Z };
+  }
+
+  function addBolt(parent, center, axis, dia, len, material) {
+    const r = Math.max(0.003, dia / 2);
+    const geom = new THREE.CylinderGeometry(r, r, len, 14);
+    const mesh = new THREE.Mesh(geom, material);
+
+    mesh.position.set(center.x, center.y, center.z);
+
+    // cilindro por defecto en Y
+    const yAxis = new THREE.Vector3(0, 1, 0);
+    const A = new THREE.Vector3(axis.x, axis.y, axis.z).normalize();
+    mesh.quaternion.setFromUnitVectors(yAxis, A);
+
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    parent.add(mesh);
+    return mesh;
+  }
+
+  // -------------------- PERFILES (paramétricos) --------------------
+  // IMPORTANTE: usar el building para el escalado suave
+  const profCol  = getProfileSpec("columna", b);
+  const profBeam = getProfileSpec("cabio", b);
+  const profPurl = getProfileSpec("correas", b);
+  const profGirt = getProfileSpec("correas_columna", b);
+
+  // -------------------- ESTRUCTURA --------------------
   for (let i = 0; i < frames; i++) {
     const z = i * step;
 
@@ -2251,12 +2223,11 @@ function boltPatternPoints2D({ nx, ny, sx, sy }) {
     const baseL = new THREE.Vector3(-halfSpan, 0, z);
     const baseR = new THREE.Vector3(halfSpan, 0, z);
 
-    addMember(THREE, group, baseL, topL, profCol, matCol);
-    addMember(THREE, group, baseR, topR, profCol, matCol);
+    addMemberProfile(group, baseL, topL, profCol, matCol);
+    addMemberProfile(group, baseR, topR, profCol, matCol);
 
     if (roof === "plana") {
-      addMember(
-        THREE,
+      addMemberProfile(
         group,
         new THREE.Vector3(-halfSpan, roofY(-halfSpan), z),
         new THREE.Vector3(halfSpan, roofY(halfSpan), z),
@@ -2264,17 +2235,18 @@ function boltPatternPoints2D({ nx, ny, sx, sy }) {
         matRafter
       );
     } else if (roof === "una_agua") {
-      addMember(THREE, group, topL, topR, profBeam, matRafter);
+      addMemberProfile(group, topL, topR, profBeam, matRafter);
     } else {
       const eaveL = new THREE.Vector3(-halfSpan, height, z);
       const eaveR = new THREE.Vector3(halfSpan, height, z);
       const ridge = new THREE.Vector3(0, height + halfSpan * slope, z);
 
-      addMember(THREE, group, eaveL, ridge, profBeam, matRafter);
-      addMember(THREE, group, ridge, eaveR, profBeam, matRafter);
+      addMemberProfile(group, eaveL, ridge, profBeam, matRafter);
+      addMemberProfile(group, ridge, eaveR, profBeam, matRafter);
     }
   }
 
+  // Correas techo
   const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
 
   for (let bay = 0; bay < frames - 1; bay++) {
@@ -2286,23 +2258,24 @@ function boltPatternPoints2D({ nx, ny, sx, sy }) {
 
       for (let k = 0; k <= halfLines; k++) {
         const x = -halfSpan + (k / halfLines) * halfSpan;
-        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
+        addMemberProfile(group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
       }
 
       for (let k = 1; k <= halfLines; k++) {
         const x = (k / halfLines) * halfSpan;
-        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
+        addMemberProfile(group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
       }
 
-      addMember(THREE, group, new THREE.Vector3(0, roofY(0), z0), new THREE.Vector3(0, roofY(0), z1), profPurl, matPurlin);
+      addMemberProfile(group, new THREE.Vector3(0, roofY(0), z0), new THREE.Vector3(0, roofY(0), z1), profPurl, matPurlin);
     } else {
       for (let k = 0; k <= linesAcross; k++) {
         const x = -halfSpan + (k / linesAcross) * span;
-        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
+        addMemberProfile(group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
       }
     }
   }
 
+  // Largueros
   for (let bay = 0; bay < frames - 1; bay++) {
     const z0 = bay * step;
     const z1 = (bay + 1) * step;
@@ -2319,15 +2292,66 @@ function boltPatternPoints2D({ nx, ny, sx, sy }) {
 
     for (let i = 0; i < levelsL; i++) {
       const y = Math.min(maxYL, startY + i * girtSpacing);
-      addMember(THREE, group, new THREE.Vector3(-halfSpan, y, z0), new THREE.Vector3(-halfSpan, y, z1), profGirt, matGirt);
+      addMemberProfile(group, new THREE.Vector3(-halfSpan, y, z0), new THREE.Vector3(-halfSpan, y, z1), profGirt, matGirt);
     }
 
     for (let i = 0; i < levelsR; i++) {
       const y = Math.min(maxYR, startY + i * girtSpacing);
-      addMember(THREE, group, new THREE.Vector3(halfSpan, y, z0), new THREE.Vector3(halfSpan, y, z1), profGirt, matGirt);
+      addMemberProfile(group, new THREE.Vector3(halfSpan, y, z0), new THREE.Vector3(halfSpan, y, z1), profGirt, matGirt);
     }
   }
 
+  // -------------------- CONEXIONES (PLACAS + BULONES) --------------------
+  // buildConnectionsFromModel devuelve features tipo:
+  // {kind:"PLATE", origin, axisZ, axisX, w,h,t} y {kind:"BOLT_GROUP", origin, axisZ, axisX, pattern:[{x,y}...]}
+  const conns = buildConnectionsFromModel(state.model);
+
+  // Para dibujar bulones coherentes con la placa, guardamos base local de cada "anchor"
+  // clave: name sin sufijo (o name exacto)
+  const plateFrames = new Map();
+
+  for (const f of conns) {
+    if (f.kind !== "PLATE") continue;
+
+    const origin = new THREE.Vector3(f.origin.x, f.origin.y, f.origin.z);
+    const axisZ  = f.axisZ || { x: 0, y: 0, z: 1 };
+    const axisX  = f.axisX || { x: 1, y: 0, z: 0 };
+
+    const { mesh, X, Y, Z } = addPlate(group, origin, axisZ, axisX, f.w, f.h, f.t, matPlate);
+    plateFrames.set(f.name, { origin, X, Y, Z, w: f.w, h: f.h, t: f.t, mesh });
+  }
+
+  for (const f of conns) {
+    if (f.kind !== "BOLT_GROUP") continue;
+
+    const frame = plateFrames.get(f.name.replace("BOLTS", "PLATE")) || plateFrames.get(f.name) || null;
+
+    // Si no encontramos placa “pareja”, usamos ejes del feature
+    const origin = frame?.origin || new THREE.Vector3(f.origin.x, f.origin.y, f.origin.z);
+    const X = frame?.X || new THREE.Vector3(f.axisX?.x ?? 1, f.axisX?.y ?? 0, f.axisX?.z ?? 0).normalize();
+    const Z = frame?.Z || new THREE.Vector3(f.axisZ?.x ?? 0, f.axisZ?.y ?? 0, f.axisZ?.z ?? 1).normalize();
+    const Y = frame?.Y || new THREE.Vector3().crossVectors(Z, X).normalize();
+
+    const boltAxis = Z;                // atraviesa la placa
+    const boltLen = 0.08;              // 80mm (demo)
+    const boltDia = Number(f.bolt_d) || 0.016;
+
+    const pattern = Array.isArray(f.pattern) ? f.pattern : [];
+    for (const p of pattern) {
+      // patrón en el plano de la placa (X/Y)
+      const cx = Number(p.x) || 0;
+      const cy = Number(p.y) || 0;
+
+      const pos = origin
+        .clone()
+        .add(X.clone().multiplyScalar(cx))
+        .add(Y.clone().multiplyScalar(cy));
+
+      addBolt(group, pos, boltAxis, boltDia, boltLen, matBolt);
+    }
+  }
+
+  // -------------------- FINAL --------------------
   scene.add(group);
   fitToGroup(THREE, state.preview.camera, state.preview.controls, group);
 
@@ -2343,7 +2367,6 @@ function boltPatternPoints2D({ nx, ny, sx, sy }) {
       `kg/m² total(planta) ${fmt2(eng.kgm2Plan)} | prim ${fmt2(eng.kgm2PlanPrimary)} | sec ${fmt2(eng.kgm2PlanSecondary)}`;
   }
 }
-
 // -------------------- VERSIONADO LOCAL --------------------
 function localKey() {
   const name = qs("#project-name")?.value?.trim() || "rmm_project";
