@@ -1573,17 +1573,15 @@ ground.position.y = -groundThickness / 2;
 
 scene.add(ground);
     
-    renderer.shadowMap.enabled = true;
-dir.castShadow = true;
-ground.receiveShadow = true;
     const axes = new AxesHelper(8);
     scene.add(axes);
 
     scene.add(new AmbientLight(0xffffff, 0.55));
 
     const dir = new DirectionalLight(0xffffff, 0.9);
-    dir.position.set(40, 60, 20);
-    scene.add(dir);
+dir.position.set(40, 60, 20);
+dir.castShadow = true;
+scene.add(dir);
 
     state.preview.renderer = renderer;
     state.preview.scene = scene;
