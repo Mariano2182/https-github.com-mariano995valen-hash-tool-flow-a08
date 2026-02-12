@@ -1240,39 +1240,66 @@ function buildConnectionsFromModel(model) {
   // helpers vectoriales simples (reutilizamos v3/vSub/vLen/vNorm de IFC)
   const V = (x, y, z) => ({ x, y, z });
   const add = (a, b) => V(a.x + b.x, a.y + b.y, a.z + b.z);
+  const sub = (a, b) => V(a.x - b.x, a.y - b.y, a.z - b.z);
   const mul = (a, s) => V(a.x * s, a.y * s, a.z * s);
+  const dot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
+  const cross = (a, b) => V(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
   const norm = (a) => vNorm(a);
+
+  // Ortonormaliza axisX respecto a axisZ (evita casos degenerados)
+  function orthoX(axisZ, axisX) {
+    const z = norm(axisZ);
+    let x = axisX ? norm(axisX) : V(1, 0, 0);
+
+    // quitar componente en Z
+    const proj = dot(x, z);
+    x = sub(x, mul(z, proj));
+
+    // si quedó casi cero, elegimos uno perpendicular
+    const lx = vLen(x);
+    if (lx < 1e-8) {
+      const ref = Math.abs(z.y) < 0.9 ? V(0, 1, 0) : V(1, 0, 0);
+      x = cross(ref, z);
+    }
+    return norm(x);
+  }
 
   const feats = [];
 
   // ---- Especificaciones base (en metros) ----
   const basePlate = {
-    w: 0.30, h: 0.30, t: 0.020, // placa
-    bolt_d: 0.016, bolt_len: 0.080,
-    // patrón (X/Y del plano placa): 2x2
+    w: 0.30,
+    h: 0.30,
+    t: 0.020, // placa
+    bolt_d: 0.016,
+    bolt_len: 0.080,
+    // patrón (X/Y del plano placa): 2x2 (x sobre axisX, y sobre axisY)
     pattern: [
       { x: -0.10, y: -0.10 },
-      { x:  0.10, y: -0.10 },
-      { x: -0.10, y:  0.10 },
-      { x:  0.10, y:  0.10 },
+      { x: 0.10, y: -0.10 },
+      { x: -0.10, y: 0.10 },
+      { x: 0.10, y: 0.10 },
     ],
   };
 
   const kneePlate = {
-    w: 0.26, h: 0.20, t: 0.012,
-    bolt_d: 0.016, bolt_len: 0.070,
+    w: 0.26,
+    h: 0.20,
+    t: 0.012,
+    bolt_d: 0.016,
+    bolt_len: 0.070,
     // patrón (X/Y del plano placa): 2 columnas x 3 filas
     pattern: [
       { x: -0.06, y: -0.06 },
-      { x:  0.06, y: -0.06 },
-      { x: -0.06, y:  0.00 },
-      { x:  0.06, y:  0.00 },
-      { x: -0.06, y:  0.06 },
-      { x:  0.06, y:  0.06 },
+      { x: 0.06, y: -0.06 },
+      { x: -0.06, y: 0.0 },
+      { x: 0.06, y: 0.0 },
+      { x: -0.06, y: 0.06 },
+      { x: 0.06, y: 0.06 },
     ],
   };
 
-  // calcula cota de cubierta
+  // calcula cota de cubierta (por si después querés placas en cumbrera, etc.)
   function roofY(x) {
     if (roof === "plana") return height;
     if (roof === "una_agua") {
@@ -1289,17 +1316,20 @@ function buildConnectionsFromModel(model) {
 
     const bases = [
       { name: `BASE-PLATE-L-${i + 1}`, at: V(-halfSpan, 0, z) },
-      { name: `BASE-PLATE-R-${i + 1}`, at: V( halfSpan, 0, z) },
+      { name: `BASE-PLATE-R-${i + 1}`, at: V(halfSpan, 0, z) },
     ];
 
     for (const bp of bases) {
-      // PLACA horizontal: axisZ = +Y (sale hacia arriba), axisX = +X
+      // PLACA horizontal: axisZ = +Y (sale hacia arriba)
+      const axisZ = V(0, 1, 0);
+      const axisX = orthoX(axisZ, V(1, 0, 0)); // eje X plano placa
+
       feats.push({
         kind: "PLATE",
         name: bp.name,
         origin: V(bp.at.x, bp.at.y + basePlate.t / 2, bp.at.z),
-        axisZ: V(0, 1, 0),
-        axisX: V(1, 0, 0),
+        axisZ,
+        axisX,
         w: basePlate.w,
         h: basePlate.h,
         t: basePlate.t,
@@ -1309,8 +1339,8 @@ function buildConnectionsFromModel(model) {
         kind: "BOLT_GROUP",
         name: bp.name.replace("PLATE", "BOLTS"),
         origin: V(bp.at.x, bp.at.y + basePlate.t / 2, bp.at.z),
-        axisZ: V(0, 1, 0), // bulón atraviesa placa verticalmente
-        axisX: V(1, 0, 0),
+        axisZ, // bulón atraviesa placa en dirección axisZ
+        axisX,
         pattern: basePlate.pattern,
         bolt_d: basePlate.bolt_d,
         bolt_len: basePlate.bolt_len,
@@ -1323,7 +1353,7 @@ function buildConnectionsFromModel(model) {
     const z = i * step;
 
     const eaveL = V(-halfSpan, height, z);
-    const eaveR = V( halfSpan, height, z);
+    const eaveR = V(halfSpan, height, z);
 
     // dirección del cabio en el pórtico (para orientar placa)
     let rafDirL, rafDirR;
@@ -1342,55 +1372,69 @@ function buildConnectionsFromModel(model) {
       rafDirR = norm(vSub(ridge, eaveR));
     }
 
-    // normal de placa: “mirando” hacia adentro (aprox hacia el centro)
-    const nL = norm(V(1, 0, 0));   // desde columna izq hacia interior
-    const nR = norm(V(-1, 0, 0));  // desde columna der hacia interior
+    // normal de placa: hacia el interior (aprox hacia el centro)
+    const nL = norm(V(1, 0, 0)); // columna izq -> interior
+    const nR = norm(V(-1, 0, 0)); // columna der -> interior
 
-    const off = 0.02; // separa un toque para que no z-fightee con el perfil
+    const off = 0.025; // separa un toque para evitar z-fighting (y “salir” del alma)
 
     // IZQ
-    feats.push({
-      kind: "PLATE",
-      name: `KNEE-PLATE-L-${i + 1}`,
-      origin: add(eaveL, mul(nL, off)),
-      axisZ: nL,                 // espesor sale en normal
-      axisX: rafDirL,            // “ancho” orientado hacia el cabio
-      w: kneePlate.w,
-      h: kneePlate.h,
-      t: kneePlate.t,
-    });
-    feats.push({
-      kind: "BOLT_GROUP",
-      name: `KNEE-BOLTS-L-${i + 1}`,
-      origin: add(eaveL, mul(nL, off)),
-      axisZ: nL,
-      axisX: rafDirL,
-      pattern: kneePlate.pattern,
-      bolt_d: kneePlate.bolt_d,
-      bolt_len: kneePlate.bolt_len,
-    });
+    {
+      const axisZ = nL;
+      const axisX = orthoX(axisZ, rafDirL); // ancho hacia cabio pero ortogonal a normal
+      const org = add(eaveL, mul(nL, off));
+
+      feats.push({
+        kind: "PLATE",
+        name: `KNEE-PLATE-L-${i + 1}`,
+        origin: org,
+        axisZ,
+        axisX,
+        w: kneePlate.w,
+        h: kneePlate.h,
+        t: kneePlate.t,
+      });
+
+      feats.push({
+        kind: "BOLT_GROUP",
+        name: `KNEE-BOLTS-L-${i + 1}`,
+        origin: org,
+        axisZ,
+        axisX,
+        pattern: kneePlate.pattern,
+        bolt_d: kneePlate.bolt_d,
+        bolt_len: kneePlate.bolt_len,
+      });
+    }
 
     // DER
-    feats.push({
-      kind: "PLATE",
-      name: `KNEE-PLATE-R-${i + 1}`,
-      origin: add(eaveR, mul(nR, off)),
-      axisZ: nR,
-      axisX: rafDirR,
-      w: kneePlate.w,
-      h: kneePlate.h,
-      t: kneePlate.t,
-    });
-    feats.push({
-      kind: "BOLT_GROUP",
-      name: `KNEE-BOLTS-R-${i + 1}`,
-      origin: add(eaveR, mul(nR, off)),
-      axisZ: nR,
-      axisX: rafDirR,
-      pattern: kneePlate.pattern,
-      bolt_d: kneePlate.bolt_d,
-      bolt_len: kneePlate.bolt_len,
-    });
+    {
+      const axisZ = nR;
+      const axisX = orthoX(axisZ, rafDirR);
+      const org = add(eaveR, mul(nR, off));
+
+      feats.push({
+        kind: "PLATE",
+        name: `KNEE-PLATE-R-${i + 1}`,
+        origin: org,
+        axisZ,
+        axisX,
+        w: kneePlate.w,
+        h: kneePlate.h,
+        t: kneePlate.t,
+      });
+
+      feats.push({
+        kind: "BOLT_GROUP",
+        name: `KNEE-BOLTS-R-${i + 1}`,
+        origin: org,
+        axisZ,
+        axisX,
+        pattern: kneePlate.pattern,
+        bolt_d: kneePlate.bolt_d,
+        bolt_len: kneePlate.bolt_len,
+      });
+    }
   }
 
   return feats;
