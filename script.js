@@ -1520,12 +1520,16 @@ async function ensurePreview3D() {
     state.preview.THREE = THREE;
     state.preview.OrbitControls = oc.OrbitControls;
 
-    const { WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, AxesHelper, GridHelper, AmbientLight, DirectionalLight } = THREE;
+    const { WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, AxesHelper, AmbientLight, DirectionalLight } = THREE;
 
     container.innerHTML = "";
 
     const renderer = new WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+    // ✅ SOMBRAS: habilitar apenas existe el renderer (antes de luces/mesh)
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     const w0 = container.clientWidth || Math.max(320, Math.floor(window.innerWidth * 0.6));
     const h0 = container.clientHeight || 520; // ✅ FIX: evita height 0 => canvas invisible
@@ -1541,47 +1545,55 @@ async function ensurePreview3D() {
 
     const controls = new state.preview.OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-controls.dampingFactor = 0.03;   // más suave (antes 0.06)
-controls.rotateSpeed = 0.35;     // rotación más lenta
-controls.zoomSpeed = 0.6;        // zoom más lento
-controls.panSpeed = 0.45;        // paneo más lento
+    controls.dampingFactor = 0.03;   // más suave
+    controls.rotateSpeed = 0.35;     // rotación más lenta
+    controls.zoomSpeed = 0.6;        // zoom más lento
+    controls.panSpeed = 0.45;        // paneo más lento
     controls.minDistance = 10;
-controls.maxDistance = 250;
+    controls.maxDistance = 250;
     controls.screenSpacePanning = true;
     controls.target.set(0, 6, 20);
 
-   // --- SUELO SÓLIDO BLANCO ---
-const groundSize = 300;
-const groundThickness = 0.5;
+    // --- SUELO SÓLIDO BLANCO ---
+    const groundSize = 300;
+    const groundThickness = 0.5;
 
-const groundGeometry = new THREE.BoxGeometry(
-  groundSize,
-  groundThickness,
-  groundSize
-);
+    const groundGeometry = new THREE.BoxGeometry(groundSize, groundThickness, groundSize);
+    const groundMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.9,
+      metalness: 0.0,
+    });
 
-const groundMaterial = new THREE.MeshStandardMaterial({
-  color: 0xffffff,
-  roughness: 0.9,
-  metalness: 0.0
-});
+    const ground = new THREE.Mesh(groundGeometry, groundMaterial);
 
-const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+    // lo bajamos medio espesor para que el "0" quede arriba
+    ground.position.y = -groundThickness / 2;
 
-// lo bajamos medio espesor para que el "0" quede arriba
-ground.position.y = -groundThickness / 2;
+    // ✅ Recibe sombras
+    ground.receiveShadow = true;
 
-scene.add(ground);
-    
+    scene.add(ground);
+
     const axes = new AxesHelper(8);
     scene.add(axes);
 
     scene.add(new AmbientLight(0xffffff, 0.55));
 
     const dir = new DirectionalLight(0xffffff, 0.9);
-dir.position.set(40, 60, 20);
-dir.castShadow = true;
-scene.add(dir);
+    dir.position.set(40, 60, 20);
+
+    // ✅ Luz proyecta sombras
+    dir.castShadow = true;
+
+    // ✅ Calidad de sombras (recomendado)
+    dir.shadow.mapSize.width = 2048;
+    dir.shadow.mapSize.height = 2048;
+    dir.shadow.camera.near = 1;
+    dir.shadow.camera.far = 600;
+    dir.shadow.bias = -0.0002;
+
+    scene.add(dir);
 
     state.preview.renderer = renderer;
     state.preview.scene = scene;
