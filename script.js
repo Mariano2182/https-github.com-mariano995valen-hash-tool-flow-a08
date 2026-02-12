@@ -1829,7 +1829,65 @@ async function renderParametricPreview() {
   const profBeam = getProfileSpec("cabio"); // incluye cabios y vigas planas
   const profPurl = getProfileSpec("correas");
   const profGirt = getProfileSpec("correas_columna");
+function addPlate(THREE, parent, center, w, h, t, normal, material) {
+  const geom = new THREE.BoxGeometry(w, h, t);
+  const mesh = new THREE.Mesh(geom, material);
+  mesh.position.set(center.x, center.y, center.z);
 
+  // orientar placa: su eje Z local apunta a "normal"
+  const zAxis = new THREE.Vector3(0, 0, 1);
+  const n = new THREE.Vector3(normal.x, normal.y, normal.z).normalize();
+  mesh.quaternion.setFromUnitVectors(zAxis, n);
+
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+
+  parent.add(mesh);
+  return mesh;
+}
+
+function addBolt(THREE, parent, p, axis, dia, len, material) {
+  const r = Math.max(0.004, dia / 2);
+  const geom = new THREE.CylinderGeometry(r, r, len, 14);
+  const mesh = new THREE.Mesh(geom, material);
+
+  const pos = new THREE.Vector3(p.x, p.y, p.z);
+  mesh.position.copy(pos);
+
+  // cilindro por defecto en Y, lo alineamos con axis
+  const yAxis = new THREE.Vector3(0, 1, 0);
+  const a = new THREE.Vector3(axis.x, axis.y, axis.z).normalize();
+  mesh.quaternion.setFromUnitVectors(yAxis, a);
+
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+
+  parent.add(mesh);
+  return mesh;
+}
+
+function boltPatternPoints2x2({ nx, nz, sx, sz, edgeX, edgeZ }) {
+  // patrón sobre placa base (X/Z)
+  const pts = [];
+  const xs = nx === 1 ? [0] : [-sx / 2, sx / 2];
+  const zs = nz === 1 ? [0] : [-sz / 2, sz / 2];
+  for (const x of xs) for (const z of zs) pts.push({ x, z });
+  return pts;
+}
+
+function boltPatternPoints2D({ nx, ny, sx, sy }) {
+  // patrón sobre placa vertical (X/Y)
+  const pts = [];
+  const xs = nx === 1 ? [0] : [-sx / 2, sx / 2];
+  const ys = [];
+  if (ny === 1) ys.push(0);
+  else {
+    const total = (ny - 1) * sy;
+    for (let i = 0; i < ny; i++) ys.push(-total / 2 + i * sy);
+  }
+  for (const x of xs) for (const y of ys) pts.push({ x, y });
+  return pts;
+}
   function roofY(x) {
     if (roof === "plana") return height;
 
