@@ -1544,9 +1544,28 @@ async function ensurePreview3D() {
     controls.dampingFactor = 0.06;
     controls.target.set(0, 6, 20);
 
-    const grid = new GridHelper(300, 120);
-    grid.position.y = 0;
-    scene.add(grid);
+    // --- SUELO SÓLIDO BLANCO ---
+const groundSize = 300;
+const groundThickness = 0.5;
+
+const groundGeometry = new THREE.BoxGeometry(
+  groundSize,
+  groundThickness,
+  groundSize
+);
+
+const groundMaterial = new THREE.MeshStandardMaterial({
+  color: 0xffffff,
+  roughness: 0.9,
+  metalness: 0.0
+});
+
+const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+
+// lo bajamos medio espesor para que el "0" quede arriba
+ground.position.y = -groundThickness / 2;
+
+scene.add(ground);
 
     const axes = new AxesHelper(8);
     scene.add(axes);
