@@ -1845,7 +1845,71 @@ function addPlate(THREE, parent, center, w, h, t, normal, material) {
   parent.add(mesh);
   return mesh;
 }
+  // ---------------- CONEXIONES (placas + bulones) ----------------
+  const matPlate = new THREE.MeshStandardMaterial({ color: 0xd1d5db, metalness: 0.25, roughness: 0.55 });
+  const matBolt  = new THREE.MeshStandardMaterial({ color: 0x111827, metalness: 0.2, roughness: 0.6 });
 
+  const conns = buildConnectionsFromModel(state.model);
+
+  for (const c of conns) {
+    const spec = CONNECTION_CATALOG[c.type];
+    if (!spec) continue;
+
+    if (spec.kind === "BASE_PLATE") {
+      // placa horizontal (Y)
+      addPlate(
+        THREE,
+        group,
+        new THREE.Vector3(c.at.x, c.at.y + spec.plate.t / 2, c.at.z),
+        spec.plate.w,
+        spec.plate.t,
+        spec.plate.d,
+        new THREE.Vector3(0, 1, 0),
+        matPlate
+      );
+
+      const pts = boltPatternPoints2x2(spec.pattern);
+      for (const p of pts) {
+        addBolt(
+          THREE,
+          group,
+          { x: c.at.x + p.x, y: c.at.y + 0.10, z: c.at.z + p.z },
+          { x: 0, y: 1, z: 0 },
+          spec.bolt.dia,
+          spec.bolt.len,
+          matBolt
+        );
+      }
+    }
+
+    if (spec.kind === "KNEE_RIGID") {
+      // placa vertical mirando hacia normal
+      addPlate(
+        THREE,
+        group,
+        new THREE.Vector3(c.at.x, c.at.y, c.at.z),
+        spec.plate.w,
+        spec.plate.h,
+        spec.plate.t,
+        new THREE.Vector3(c.normal.x, c.normal.y, c.normal.z),
+        matPlate
+      );
+
+      const pts = boltPatternPoints2D(spec.pattern);
+      // bulones "atraviesan" la placa en dirección normal
+      for (const p of pts) {
+        addBolt(
+          THREE,
+          group,
+          { x: c.at.x + p.x, y: c.at.y + p.y, z: c.at.z },
+          { x: c.normal.x, y: c.normal.y, z: c.normal.z },
+          spec.bolt.dia,
+          spec.bolt.len,
+          matBolt
+        );
+      }
+    }
+  }
 function addBolt(THREE, parent, p, axis, dia, len, material) {
   const r = Math.max(0.004, dia / 2);
   const geom = new THREE.CylinderGeometry(r, r, len, 14);
