@@ -1775,7 +1775,7 @@ async function renderParametricPreview() {
     group.add(mesh);
   }
 
-  const features = buildConnections(state.model);
+  const features = buildConnectionsFromModel(state.model);
   const plateFrames = new Map();
 
   for (const f of features) {
