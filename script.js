@@ -11,7 +11,7 @@
 
 const qs = (sel, parent = document) => parent.querySelector(sel);
 const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
-
+import { buildConnectionsFromModel } from "./lib/connections/index.js";
 const state = {
   session: null,
   role: null,
