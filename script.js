@@ -1380,6 +1380,8 @@ async function ensurePreview3D() {
 
   try {
     const THREE = await import("https://unpkg.com/three@0.158.0/build/three.module.js");
+    const CSG = await import("https://unpkg.com/three-bvh-csg@0.0.7/build/index.module.js");
+state.preview.CSG = CSG;
     const oc = await import("https://unpkg.com/three@0.158.0/examples/jsm/controls/OrbitControls.js");
 
     state.preview.THREE = THREE;
