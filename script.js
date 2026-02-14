@@ -1555,7 +1555,7 @@ function resetViewer() {
 }
 
 // ✅ Preview con sección real: ExtrudeGeometry(Shape)
-function addMember(THREE, parent, a, b, profileSpec, material) {
+function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFeatures = []) {
   const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length();
   if (len <= 0.0001) return;
@@ -1565,28 +1565,71 @@ function addMember(THREE, parent, a, b, profileSpec, material) {
   shape.moveTo(pts[0].x, pts[0].y);
   for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i].x, pts[i].y);
 
-  const geom = new THREE.ExtrudeGeometry(shape, {
-    depth: len,
-    bevelEnabled: false,
-    steps: 1,
-  });
+  const geom = new THREE.ExtrudeGeometry(shape, { depth: len, bevelEnabled: false, steps: 1 });
+  geom.translate(0, 0, -len / 2);
 
-  const mesh = new THREE.Mesh(geom, material);
+  let mesh = new THREE.Mesh(geom, material);
+  mesh.name = memberName || "MEMBER";
 
-  // La extrusión va en +Z local, alineamos con dir (a->b)
+  // orientar a -> b
   const zAxis = new THREE.Vector3(0, 0, 1);
   const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.clone().normalize());
   mesh.quaternion.copy(q);
 
-  // centrar: extruye 0..len, movemos geometría a -len/2 para que el mesh quede en mid
-  geom.translate(0, 0, -len / 2);
-
   const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
   mesh.position.copy(mid);
 
-  // ✅ sombras
   mesh.castShadow = true;
-  mesh.receiveShadow = false;
+
+  // ----------------- APLICAR CUTS (CSG) -----------------
+  const CSG = state.preview.CSG;
+  const cutsForThis = (cutFeatures || []).filter(f => f.kind === "CUT" && f.target === mesh.name);
+
+  if (CSG && cutsForThis.length) {
+    const { Brush, Evaluator, SUBTRACTION } = CSG;
+
+    const evaluator = new Evaluator();
+    let resultBrush = new Brush(mesh.geometry.clone(), mesh.matrixWorld);
+
+    for (const c of cutsForThis) {
+      if (c.shape !== "BOX") continue;
+
+      const boxGeom = new THREE.BoxGeometry(c.w, c.h, c.d);
+      const boxMesh = new THREE.Mesh(boxGeom);
+
+      // ubicar el box según ejes locales del feature
+      // feature axes vienen en coords globales del modelo (x,y,z)
+      const X = new THREE.Vector3(c.axisX.x, c.axisX.y, c.axisX.z).normalize();
+      const Y = new THREE.Vector3(c.axisY.x, c.axisY.y, c.axisY.z).normalize();
+      const Z = new THREE.Vector3(c.axisZ.x, c.axisZ.y, c.axisZ.z).normalize();
+
+      const basis = new THREE.Matrix4().makeBasis(X, Y, Z);
+      boxMesh.quaternion.setFromRotationMatrix(basis);
+
+      // centro del box en el mundo
+      const org = new THREE.Vector3(c.origin.x, c.origin.y, c.origin.z);
+      const cl = c.centerLocal || { x: 0, y: 0, z: 0 };
+      const center = org
+        .clone()
+        .add(X.clone().multiplyScalar(cl.x))
+        .add(Y.clone().multiplyScalar(cl.y))
+        .add(Z.clone().multiplyScalar(cl.z));
+
+      boxMesh.position.copy(center);
+      boxMesh.updateMatrixWorld(true);
+
+      const cutBrush = new Brush(boxMesh.geometry, boxMesh.matrixWorld);
+
+      resultBrush = evaluator.evaluate(resultBrush, cutBrush, SUBTRACTION);
+    }
+
+    // convertimos a mesh final
+    const finalGeom = resultBrush.geometry;
+    mesh = new THREE.Mesh(finalGeom, material);
+    mesh.name = memberName || "MEMBER";
+    mesh.castShadow = true;
+    mesh.receiveShadow = false;
+  }
 
   parent.add(mesh);
 }
