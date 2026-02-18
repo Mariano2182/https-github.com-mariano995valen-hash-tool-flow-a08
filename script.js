@@ -1673,25 +1673,22 @@ async function renderParametricPreview() {
 addMember(THREE, group, baseR, topR, profCol, matCol, `COL-R-${i + 1}`, cutFeatures);
 
     if (roof === "plana") {
-      addMember(THREE, group, a, c, profBeam, matRafter, `BEAM-${i + 1}`, cutFeatures);
-        THREE,
-        group,
-        new THREE.Vector3(-halfSpan, roofY(-halfSpan), z),
-        new THREE.Vector3(halfSpan, roofY(halfSpan), z),
-        profBeam,
-        matRafter
-      );
-    } else if (roof === "una_agua") {
-      addMember(THREE, group, topL, topR, profBeam, matRafter, `RAF-${i + 1}`, cutFeatures);
-    } else {
-      const eaveL = new THREE.Vector3(-halfSpan, height, z);
-      const eaveR = new THREE.Vector3(halfSpan, height, z);
-      const ridge = new THREE.Vector3(0, height + halfSpan * slope, z);
+  const a = new THREE.Vector3(-halfSpan, roofY(-halfSpan), z);
+  const c = new THREE.Vector3(halfSpan, roofY(halfSpan), z);
 
-      addMember(THREE, group, eaveL, ridge, profBeam, matRafter, `RAF-L-${i + 1}`, cutFeatures);
-addMember(THREE, group, ridge, eaveR, profBeam, matRafter, `RAF-R-${i + 1}`, cutFeatures);
-    }
-  }
+  addMember(THREE, group, a, c, profBeam, matRafter, `BEAM-${i + 1}`, cutFeatures);
+
+} else if (roof === "una_agua") {
+  addMember(THREE, group, topL, topR, profBeam, matRafter, `RAF-${i + 1}`, cutFeatures);
+
+} else {
+  const eaveL = new THREE.Vector3(-halfSpan, height, z);
+  const eaveR = new THREE.Vector3(halfSpan, height, z);
+  const ridge = new THREE.Vector3(0, height + halfSpan * slope, z);
+
+  addMember(THREE, group, eaveL, ridge, profBeam, matRafter, `RAF-L-${i + 1}`, cutFeatures);
+  addMember(THREE, group, ridge, eaveR, profBeam, matRafter, `RAF-R-${i + 1}`, cutFeatures);
+}
 
   const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
 
