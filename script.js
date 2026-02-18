@@ -1788,7 +1788,6 @@ async function renderParametricPreview() {
     group.add(mesh);
   }
 
-  const features = buildConnectionsFromModel(state.model);
   const plateFrames = new Map();
 
   for (const f of features) {
