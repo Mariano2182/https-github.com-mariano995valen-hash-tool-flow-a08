@@ -1673,7 +1673,7 @@ async function renderParametricPreview() {
 addMember(THREE, group, baseR, topR, profCol, matCol, `COL-R-${i + 1}`, cutFeatures);
 
     if (roof === "plana") {
-      addMember(
+      addMember(THREE, group, a, c, profBeam, matRafter, `BEAM-${i + 1}`, cutFeatures);
         THREE,
         group,
         new THREE.Vector3(-halfSpan, roofY(-halfSpan), z),
