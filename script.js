@@ -1688,8 +1688,8 @@ addMember(THREE, group, baseR, topR, profCol, matCol, `COL-R-${i + 1}`, cutFeatu
       const eaveR = new THREE.Vector3(halfSpan, height, z);
       const ridge = new THREE.Vector3(0, height + halfSpan * slope, z);
 
-      addMember(THREE, group, eaveL, ridge, profBeam, matRafter);
-      addMember(THREE, group, ridge, eaveR, profBeam, matRafter);
+      addMember(THREE, group, eaveL, ridge, profBeam, matRafter, `RAF-L-${i + 1}`, cutFeatures);
+addMember(THREE, group, ridge, eaveR, profBeam, matRafter, `RAF-R-${i + 1}`, cutFeatures);
     }
   }
 
