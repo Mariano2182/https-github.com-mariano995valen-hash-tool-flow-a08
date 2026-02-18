@@ -1682,7 +1682,7 @@ addMember(THREE, group, baseR, topR, profCol, matCol, `COL-R-${i + 1}`, cutFeatu
         matRafter
       );
     } else if (roof === "una_agua") {
-      addMember(THREE, group, topL, topR, profBeam, matRafter);
+      addMember(THREE, group, topL, topR, profBeam, matRafter, `RAF-${i + 1}`, cutFeatures);
     } else {
       const eaveL = new THREE.Vector3(-halfSpan, height, z);
       const eaveR = new THREE.Vector3(halfSpan, height, z);
