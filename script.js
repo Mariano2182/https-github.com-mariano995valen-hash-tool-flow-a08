@@ -1554,6 +1554,7 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
     const { Brush, Evaluator, SUBTRACTION } = CSG;
 
     const evaluator = new Evaluator();
+    mesh.updateMatrixWorld(true);
     let resultBrush = new Brush(mesh.geometry.clone(), mesh.matrixWorld);
 
     for (const c of cutsForThis) {
