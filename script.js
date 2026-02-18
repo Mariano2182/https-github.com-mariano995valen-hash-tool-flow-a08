@@ -1642,7 +1642,9 @@ async function renderParametricPreview() {
   const profBeam = getProfileSpec("cabio");
   const profPurl = getProfileSpec("correas");
   const profGirt = getProfileSpec("correas_columna");
-
+  // ✅ Features de conexiones (incluye CUTS)
+  const features = buildConnectionsFromModel(state.model);
+  const cutFeatures = features.filter(f => f.kind === "CUT");
   function roofY(x) {
     if (roof === "plana") return height;
     if (roof === "una_agua") {
