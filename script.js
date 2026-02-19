@@ -1661,7 +1661,6 @@ function fitToGroup(THREE, camera, controls, group) {
 
 async function renderParametricPreview() {
   if (!state.model) return;
-const matCol = new THREE.MeshStandardMaterial({ metalness: 0.35, roughness: 0.45 });
   const ok = await ensurePreview3D();
   if (!ok) return;
 
@@ -1679,10 +1678,29 @@ const matCol = new THREE.MeshStandardMaterial({ metalness: 0.35, roughness: 0.45
   const halfSpan = span / 2;
   const step = frames > 1 ? length / (frames - 1) : length;
 
-  const matCol = new THREE.MeshStandardMaterial({ color: 0x2563eb, metalness: 0.2, roughness: 0.6 });
-  const matRafter = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.2, roughness: 0.55 });
-  const matPurlin = new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.1, roughness: 0.7 });
-  const matGirt = new THREE.MeshStandardMaterial({ color: 0x93c5fd, metalness: 0.1, roughness: 0.75 });
+  const matCol = new THREE.MeshStandardMaterial({
+  color: 0x1e3a8a,     // azul más profundo
+  metalness: 0.35,
+  roughness: 0.45
+});
+
+const matRafter = new THREE.MeshStandardMaterial({
+  color: 0x0369a1,
+  metalness: 0.35,
+  roughness: 0.45
+});
+
+const matPurlin = new THREE.MeshStandardMaterial({
+  color: 0x0f766e,
+  metalness: 0.30,
+  roughness: 0.50
+});
+
+const matGirt = new THREE.MeshStandardMaterial({
+  color: 0x475569,
+  metalness: 0.30,
+  roughness: 0.50
+});
 
   const profCol = getProfileSpec("columna");
   const profBeam = getProfileSpec("cabio");
