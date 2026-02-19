@@ -1553,12 +1553,13 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
   const len = dir.length();
   if (len <= 0.0001) return;
 
+  // ---------- PERFIL REAL (Shape + Extrude) ----------
   const pts = profilePolygon(profileSpec);
 
   const shape = new THREE.Shape();
   shape.moveTo(pts[0].x, pts[0].y);
   for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i].x, pts[i].y);
-  shape.closePath(); // ✅ importante
+  shape.closePath();
 
   const geom = new THREE.ExtrudeGeometry(shape, {
     depth: len,
@@ -1566,29 +1567,98 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
     steps: 1,
   });
 
-  // Centrar en el eje de extrusión para rotar fácil
+  // Centrar en Z para rotar fácil luego
   geom.translate(0, 0, -len / 2);
 
-  // ✅ shading limpio
-  geom.computeVertexNormals();
-  const cleanGeom = geom.toNonIndexed(); // ayuda con CSG y normales
+  // Normales “limpias” (mejora shading + CSG)
+  // Nota: toNonIndexed duplica vértices → más pesado pero se ve mejor.
+  let cleanGeom = geom;
+  cleanGeom.computeVertexNormals();
+  cleanGeom = cleanGeom.toNonIndexed();
   cleanGeom.computeVertexNormals();
 
+  // ---------- MESH BASE ----------
   let mesh = new THREE.Mesh(cleanGeom, material);
   mesh.name = memberName || "MEMBER";
 
-  // orientar a -> b
+  // orientar a -> b (eje Z local apunta en dirección del miembro)
   const zAxis = new THREE.Vector3(0, 0, 1);
   const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.clone().normalize());
   mesh.quaternion.copy(q);
 
+  // ubicar en el punto medio
   const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
   mesh.position.copy(mid);
 
   mesh.castShadow = true;
   mesh.receiveShadow = false;
 
-  // (tu bloque CSG de cuts queda igual)
+  // ---------- CORTES (CSG) ----------
+  const CSG = state.preview?.CSG;
+  const cutsForThis = (cutFeatures || []).filter(
+    (f) => f.kind === "CUT" && f.target === mesh.name
+  );
+
+  if (CSG && cutsForThis.length) {
+    const { Brush, Evaluator, SUBTRACTION } = CSG;
+    const evaluator = new Evaluator();
+
+    // IMPORTANTÍSIMO: matrixWorld actualizado antes de Brush
+    mesh.updateMatrixWorld(true);
+
+    let resultBrush = new Brush(mesh.geometry.clone(), mesh.matrixWorld);
+
+    for (const c of cutsForThis) {
+      if (c.shape !== "BOX") continue;
+
+      const boxGeom = new THREE.BoxGeometry(c.w, c.h, c.d);
+      const boxMesh = new THREE.Mesh(boxGeom);
+
+      // ejes del feature (en coordenadas del mundo)
+      const X = new THREE.Vector3(c.axisX.x, c.axisX.y, c.axisX.z).normalize();
+      const Y = new THREE.Vector3(c.axisY.x, c.axisY.y, c.axisY.z).normalize();
+      const Z = new THREE.Vector3(c.axisZ.x, c.axisZ.y, c.axisZ.z).normalize();
+
+      // orientación del box
+      const basis = new THREE.Matrix4().makeBasis(X, Y, Z);
+      boxMesh.quaternion.setFromRotationMatrix(basis);
+
+      // centro del box: origin + centerLocal proyectado en ejes
+      const org = new THREE.Vector3(c.origin.x, c.origin.y, c.origin.z);
+      const cl = c.centerLocal || { x: 0, y: 0, z: 0 };
+
+      const center = org
+        .clone()
+        .add(X.clone().multiplyScalar(cl.x))
+        .add(Y.clone().multiplyScalar(cl.y))
+        .add(Z.clone().multiplyScalar(cl.z));
+
+      boxMesh.position.copy(center);
+      boxMesh.updateMatrixWorld(true);
+
+      const cutBrush = new Brush(boxMesh.geometry, boxMesh.matrixWorld);
+      resultBrush = evaluator.evaluate(resultBrush, cutBrush, SUBTRACTION);
+    }
+
+    // Mesh final post-cortes
+    const finalGeom = resultBrush.geometry;
+
+    // mejora visual: normales luego del booleano
+    finalGeom.computeVertexNormals();
+    const finalClean = finalGeom.toNonIndexed();
+    finalClean.computeVertexNormals();
+
+    mesh = new THREE.Mesh(finalClean, material);
+    mesh.name = memberName || "MEMBER";
+    mesh.castShadow = true;
+    mesh.receiveShadow = false;
+
+    // IMPORTANTE: conservar pose/orientación
+    mesh.quaternion.copy(q);
+    mesh.position.copy(mid);
+    mesh.updateMatrixWorld(true);
+  }
+
   parent.add(mesh);
 }
 
