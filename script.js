@@ -1660,61 +1660,8 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
   }
 
   parent.add(mesh);
-
-  // ----------------- APLICAR CUTS (CSG) -----------------
-  const CSG = state.preview.CSG;
-  const cutsForThis = (cutFeatures || []).filter(f => f.kind === "CUT" && f.target === mesh.name);
-
-  if (CSG && cutsForThis.length) {
-    const { Brush, Evaluator, SUBTRACTION } = CSG;
-
-    const evaluator = new Evaluator();
-    mesh.updateMatrixWorld(true);
-    let resultBrush = new Brush(mesh.geometry.clone(), mesh.matrixWorld);
-
-    for (const c of cutsForThis) {
-      if (c.shape !== "BOX") continue;
-
-      const boxGeom = new THREE.BoxGeometry(c.w, c.h, c.d);
-      const boxMesh = new THREE.Mesh(boxGeom);
-
-      // ubicar el box según ejes locales del feature
-      // feature axes vienen en coords globales del modelo (x,y,z)
-      const X = new THREE.Vector3(c.axisX.x, c.axisX.y, c.axisX.z).normalize();
-      const Y = new THREE.Vector3(c.axisY.x, c.axisY.y, c.axisY.z).normalize();
-      const Z = new THREE.Vector3(c.axisZ.x, c.axisZ.y, c.axisZ.z).normalize();
-
-      const basis = new THREE.Matrix4().makeBasis(X, Y, Z);
-      boxMesh.quaternion.setFromRotationMatrix(basis);
-
-      // centro del box en el mundo
-      const org = new THREE.Vector3(c.origin.x, c.origin.y, c.origin.z);
-      const cl = c.centerLocal || { x: 0, y: 0, z: 0 };
-      const center = org
-        .clone()
-        .add(X.clone().multiplyScalar(cl.x))
-        .add(Y.clone().multiplyScalar(cl.y))
-        .add(Z.clone().multiplyScalar(cl.z));
-
-      boxMesh.position.copy(center);
-      boxMesh.updateMatrixWorld(true);
-
-      const cutBrush = new Brush(boxMesh.geometry, boxMesh.matrixWorld);
-
-      resultBrush = evaluator.evaluate(resultBrush, cutBrush, SUBTRACTION);
-    }
-
-    // convertimos a mesh final
-    const finalGeom = resultBrush.geometry;
-    mesh = new THREE.Mesh(finalGeom, material);
-    mesh.name = memberName || "MEMBER";
-    mesh.castShadow = true;
-    mesh.receiveShadow = false;
   }
-
-  parent.add(mesh);
-}
-
+  
 function fitToGroup(THREE, camera, controls, group) {
   const box = new THREE.Box3().setFromObject(group);
   const size = box.getSize(new THREE.Vector3());
