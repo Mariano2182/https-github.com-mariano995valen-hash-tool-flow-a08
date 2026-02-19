@@ -1661,7 +1661,7 @@ function fitToGroup(THREE, camera, controls, group) {
 
 async function renderParametricPreview() {
   if (!state.model) return;
-
+const matCol = new THREE.MeshStandardMaterial({ metalness: 0.35, roughness: 0.45 });
   const ok = await ensurePreview3D();
   if (!ok) return;
 
