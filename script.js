@@ -1660,7 +1660,6 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
   }
 
   parent.add(mesh);
-}
 
   // ----------------- APLICAR CUTS (CSG) -----------------
   const CSG = state.preview.CSG;
