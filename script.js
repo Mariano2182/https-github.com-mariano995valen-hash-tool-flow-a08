@@ -1547,20 +1547,34 @@ function resetViewer() {
 }
 
 // ✅ Preview con sección real: ExtrudeGeometry(Shape)
+// ✅ Preview con sección real: ExtrudeGeometry(Shape)
 function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFeatures = []) {
   const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length();
   if (len <= 0.0001) return;
 
   const pts = profilePolygon(profileSpec);
+
   const shape = new THREE.Shape();
   shape.moveTo(pts[0].x, pts[0].y);
   for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i].x, pts[i].y);
+  shape.closePath(); // ✅ importante
 
-  const geom = new THREE.ExtrudeGeometry(shape, { depth: len, bevelEnabled: false, steps: 1 });
+  const geom = new THREE.ExtrudeGeometry(shape, {
+    depth: len,
+    bevelEnabled: false,
+    steps: 1,
+  });
+
+  // Centrar en el eje de extrusión para rotar fácil
   geom.translate(0, 0, -len / 2);
 
-  let mesh = new THREE.Mesh(geom, material);
+  // ✅ shading limpio
+  geom.computeVertexNormals();
+  const cleanGeom = geom.toNonIndexed(); // ayuda con CSG y normales
+  cleanGeom.computeVertexNormals();
+
+  let mesh = new THREE.Mesh(cleanGeom, material);
   mesh.name = memberName || "MEMBER";
 
   // orientar a -> b
@@ -1572,6 +1586,11 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
   mesh.position.copy(mid);
 
   mesh.castShadow = true;
+  mesh.receiveShadow = false;
+
+  // (tu bloque CSG de cuts queda igual)
+  parent.add(mesh);
+}
 
   // ----------------- APLICAR CUTS (CSG) -----------------
   const CSG = state.preview.CSG;
