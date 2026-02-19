@@ -1379,17 +1379,13 @@ async function ensurePreview3D() {
   if (!container) return false;
 
   try {
-    // ✅ IMPORTS ESM “GitHub Pages friendly”
-    // (mantenemos una sola versión de three para evitar incompatibilidades)
-    const THREE = await import("https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js");
-    const oc = await import("https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/controls/OrbitControls.js");
-
-    // ✅ CLAVE: esm.sh resuelve bare imports (three-mesh-bvh) automáticamente
-    const CSG = await import("https://esm.sh/three-bvh-csg@0.0.7?deps=three@0.158.0");
+    const THREE = await import("https://unpkg.com/three@0.158.0/build/three.module.js");
+    const CSG = await import("https://unpkg.com/three-bvh-csg@0.0.7/build/index.module.js");
+state.preview.CSG = CSG;
+    const oc = await import("https://unpkg.com/three@0.158.0/examples/jsm/controls/OrbitControls.js");
 
     state.preview.THREE = THREE;
     state.preview.OrbitControls = oc.OrbitControls;
-    state.preview.CSG = CSG;
 
     const {
       WebGLRenderer,
@@ -1402,7 +1398,7 @@ async function ensurePreview3D() {
       DirectionalLight,
       BoxGeometry,
       MeshStandardMaterial,
-      Mesh,
+      Mesh
     } = THREE;
 
     container.innerHTML = "";
@@ -1426,44 +1422,56 @@ async function ensurePreview3D() {
     const camera = new PerspectiveCamera(55, w0 / h0, 0.1, 2000);
     camera.position.set(35, 18, 60);
 
+    // ✅ navegación suave / menos rápida
     const controls = new state.preview.OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.03;
-    controls.rotateSpeed = 0.35;
-    controls.zoomSpeed = 0.60;
-    controls.panSpeed = 0.45;
+    controls.dampingFactor = 0.03;   // más suave (menos "nervioso")
+    controls.rotateSpeed = 0.35;     // rotación más lenta
+    controls.zoomSpeed = 0.60;       // zoom más lento
+    controls.panSpeed = 0.45;        // paneo más lento
     controls.minDistance = 0.5;
     controls.maxDistance = 250;
     controls.screenSpacePanning = true;
     controls.target.set(0, 6, 20);
 
-    // ✅ suelo
+    // ✅ SUELO SÓLIDO BLANCO (bloque)
     const groundSize = 320;
     const groundThickness = 0.6;
+
     const groundGeom = new BoxGeometry(groundSize, groundThickness, groundSize);
-    const groundMat = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0.0 });
+    const groundMat = new MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.9,
+      metalness: 0.0
+    });
     const ground = new Mesh(groundGeom, groundMat);
     ground.position.y = -groundThickness / 2;
     ground.receiveShadow = true;
     ground.name = "RMM_GROUND";
     scene.add(ground);
 
+    // ejes (si querés ocultarlos, comentá estas 2 líneas)
     const axes = new AxesHelper(8);
     scene.add(axes);
 
     scene.add(new AmbientLight(0xffffff, 0.55));
 
+    // ✅ direccional con sombras configuradas
     const dir = new DirectionalLight(0xffffff, 0.9);
     dir.position.set(40, 60, 20);
     dir.castShadow = true;
+
     dir.shadow.mapSize.width = 2048;
     dir.shadow.mapSize.height = 2048;
+
+    // “cámara” de sombra (ajustá si cortan sombras)
     dir.shadow.camera.near = 1;
     dir.shadow.camera.far = 200;
     dir.shadow.camera.left = -120;
     dir.shadow.camera.right = 120;
     dir.shadow.camera.top = 120;
     dir.shadow.camera.bottom = -120;
+
     scene.add(dir);
 
     state.preview.renderer = renderer;
@@ -1507,7 +1515,7 @@ async function ensurePreview3D() {
     if (containerEl) {
       containerEl.innerHTML = `
         <div style="padding:16px;color:#e2e8f0;font-weight:700;">
-          No se pudo cargar Three.js / CSG desde CDN.<br/>
+          No se pudo cargar Three.js desde CDN.<br/>
           <span style="font-weight:400;color:#94a3b8;">
             Motivo: ${String(err?.message || err)}
           </span>
@@ -1519,6 +1527,33 @@ async function ensurePreview3D() {
     return false;
   }
 }
+
+function resetViewer() {
+  const container = qs("#ifc-viewer");
+  if (!container) return;
+
+  if (state.preview.animId) cancelAnimationFrame(state.preview.animId);
+  if (state.preview.resizeObs) {
+    try { state.preview.resizeObs.disconnect(); } catch {}
+  }
+
+  state.preview.ready = false;
+  state.preview.THREE = null;
+  state.preview.OrbitControls = null;
+  state.preview.renderer = null;
+  state.preview.scene = null;
+  state.preview.camera = null;
+  state.preview.controls = null;
+  state.preview.animId = null;
+  state.preview.resizeObs = null;
+
+  container.innerHTML = "";
+  const vs = qs("#viewer-status");
+  if (vs) vs.textContent = "Sin archivo";
+  const st = qs("#ifc-status");
+  if (st) st.textContent = "Visor reiniciado. Preview se reinicia al generar modelo.";
+}
+
 // ✅ Preview con sección real: ExtrudeGeometry(Shape)
 function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFeatures = []) {
   const dir = new THREE.Vector3().subVectors(b, a);
@@ -1554,7 +1589,6 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
     const { Brush, Evaluator, SUBTRACTION } = CSG;
 
     const evaluator = new Evaluator();
-    mesh.updateMatrixWorld(true);
     let resultBrush = new Brush(mesh.geometry.clone(), mesh.matrixWorld);
 
     for (const c of cutsForThis) {
@@ -1642,9 +1676,7 @@ async function renderParametricPreview() {
   const profBeam = getProfileSpec("cabio");
   const profPurl = getProfileSpec("correas");
   const profGirt = getProfileSpec("correas_columna");
-  // ✅ Features de conexiones (incluye CUTS)
-  const features = buildConnectionsFromModel(state.model);
-  const cutFeatures = features.filter(f => f.kind === "CUT");
+
   function roofY(x) {
     if (roof === "plana") return height;
     if (roof === "una_agua") {
@@ -1669,25 +1701,29 @@ async function renderParametricPreview() {
     const baseL = new THREE.Vector3(-halfSpan, 0, z);
     const baseR = new THREE.Vector3(halfSpan, 0, z);
 
-    addMember(THREE, group, baseL, topL, profCol, matCol, `COL-L-${i + 1}`, cutFeatures);
-addMember(THREE, group, baseR, topR, profCol, matCol, `COL-R-${i + 1}`, cutFeatures);
+    addMember(THREE, group, baseL, topL, profCol, matCol);
+    addMember(THREE, group, baseR, topR, profCol, matCol);
 
-        if (roof === "plana") {
-      const a = new THREE.Vector3(-halfSpan, roofY(-halfSpan), z);
-      const c = new THREE.Vector3(halfSpan, roofY(halfSpan), z);
-      addMember(THREE, group, a, c, profBeam, matRafter, `BEAM-${i + 1}`, cutFeatures);
+    if (roof === "plana") {
+      addMember(
+        THREE,
+        group,
+        new THREE.Vector3(-halfSpan, roofY(-halfSpan), z),
+        new THREE.Vector3(halfSpan, roofY(halfSpan), z),
+        profBeam,
+        matRafter
+      );
     } else if (roof === "una_agua") {
-      addMember(THREE, group, topL, topR, profBeam, matRafter, `RAF-${i + 1}`, cutFeatures);
+      addMember(THREE, group, topL, topR, profBeam, matRafter);
     } else {
       const eaveL = new THREE.Vector3(-halfSpan, height, z);
       const eaveR = new THREE.Vector3(halfSpan, height, z);
       const ridge = new THREE.Vector3(0, height + halfSpan * slope, z);
 
-      addMember(THREE, group, eaveL, ridge, profBeam, matRafter, `RAF-L-${i + 1}`, cutFeatures);
-      addMember(THREE, group, ridge, eaveR, profBeam, matRafter, `RAF-R-${i + 1}`, cutFeatures);
+      addMember(THREE, group, eaveL, ridge, profBeam, matRafter);
+      addMember(THREE, group, ridge, eaveR, profBeam, matRafter);
     }
-
-  } // ✅ <— ESTA LLAVE FALTABA (cierra el for de frames)
+  }
 
   const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
 
@@ -1784,6 +1820,7 @@ addMember(THREE, group, baseR, topR, profCol, matCol, `COL-R-${i + 1}`, cutFeatu
     group.add(mesh);
   }
 
+  const features = buildConnectionsFromModel(state.model);
   const plateFrames = new Map();
 
   for (const f of features) {
