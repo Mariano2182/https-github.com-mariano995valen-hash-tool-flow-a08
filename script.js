@@ -1829,25 +1829,46 @@ const matGirt = new THREE.MeshStandardMaterial({
   const matBolt  = new THREE.MeshStandardMaterial({ color: 0x111827, metalness: 0.2, roughness: 0.6 });
 
   function addPlate(origin, axisZ, axisX, w, h, t) {
-    const geom = new THREE.BoxGeometry(w, h, t);
-    const mesh = new THREE.Mesh(geom, matPlate);
-    mesh.position.set(origin.x, origin.y, origin.z);
+  const Z = new THREE.Vector3(axisZ.x, axisZ.y, axisZ.z).normalize();
+  let X = new THREE.Vector3(axisX.x, axisX.y, axisX.z).normalize();
+  if (Math.abs(X.dot(Z)) > 0.95) X = new THREE.Vector3(1, 0, 0);
+  const Y = new THREE.Vector3().crossVectors(Z, X).normalize();
+  X = new THREE.Vector3().crossVectors(Y, Z).normalize();
 
-    const Z = new THREE.Vector3(axisZ.x, axisZ.y, axisZ.z).normalize();
-    let X = new THREE.Vector3(axisX.x, axisX.y, axisX.z).normalize();
-    if (Math.abs(X.dot(Z)) > 0.95) X = new THREE.Vector3(1, 0, 0);
-    const Y = new THREE.Vector3().crossVectors(Z, X).normalize();
-    X = new THREE.Vector3().crossVectors(Y, Z).normalize();
+  // placa con bevel
+  const chamfer = Math.min(Math.max(t * 0.25, 0.001), 0.004);
+  const s = new THREE.Shape();
+  s.moveTo(-w/2, -h/2);
+  s.lineTo( w/2, -h/2);
+  s.lineTo( w/2,  h/2);
+  s.lineTo(-w/2,  h/2);
+  s.closePath();
 
-    const m = new THREE.Matrix4().makeBasis(X, Y, Z);
-    mesh.quaternion.setFromRotationMatrix(m);
+  const geom = new THREE.ExtrudeGeometry(s, {
+    depth: t,
+    bevelEnabled: true,
+    bevelThickness: chamfer,
+    bevelSize: chamfer,
+    bevelSegments: 2,
+    steps: 1
+  });
 
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+  // centrar espesor
+  geom.translate(0, 0, -t/2);
+  geom.computeVertexNormals();
 
-    group.add(mesh);
-    return { origin: new THREE.Vector3(origin.x, origin.y, origin.z), X, Y, Z };
-  }
+  const mesh = new THREE.Mesh(geom, matPlate);
+  mesh.position.set(origin.x, origin.y, origin.z);
+
+  const m = new THREE.Matrix4().makeBasis(X, Y, Z);
+  mesh.quaternion.setFromRotationMatrix(m);
+
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+
+  return { origin: new THREE.Vector3(origin.x, origin.y, origin.z), X, Y, Z };
+}
 
   function hexPrismGeometry(THREE, radius, height) {
   const shape = new THREE.Shape();
