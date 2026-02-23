@@ -1943,7 +1943,9 @@ function addBoltTekla(center, axis, dia, gripLen, matBolt, matWasher) {
   },
   plate: {
     t: 0.012, // 12mm (ajustalo a tu estándar)
-  }
+  },
+    cope: {
+      clearance: 0.004, // 4mm
 });
   const plateFrames = new Map();
 
