@@ -1949,7 +1949,8 @@ function addBoltTekla(center, axis, dia, gripLen, matBolt, matWasher) {
         .add(X.clone().multiplyScalar(cx))
         .add(Y.clone().multiplyScalar(cy));
 
-      addBolt(pos, boltAxis, boltDia, boltLen);
+      const matWasher = new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.35, roughness: 0.45 });
+addBoltTekla(pos, boltAxis, boltDia, boltLen, matBolt, matWasher);
     }
   }
 
