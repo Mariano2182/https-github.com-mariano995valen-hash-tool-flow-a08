@@ -1849,22 +1849,71 @@ const matGirt = new THREE.MeshStandardMaterial({
     return { origin: new THREE.Vector3(origin.x, origin.y, origin.z), X, Y, Z };
   }
 
-  function addBolt(center, axis, dia, len) {
-    const r = Math.max(0.003, dia / 2);
-    const geom = new THREE.CylinderGeometry(r, r, len, 14);
-    const mesh = new THREE.Mesh(geom, matBolt);
-
-    mesh.position.set(center.x, center.y, center.z);
-
-    const yAxis = new THREE.Vector3(0, 1, 0);
-    const A = new THREE.Vector3(axis.x, axis.y, axis.z).normalize();
-    mesh.quaternion.setFromUnitVectors(yAxis, A);
-
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-
-    group.add(mesh);
+  function hexPrismGeometry(THREE, radius, height) {
+  const shape = new THREE.Shape();
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const x = Math.cos(a) * radius;
+    const y = Math.sin(a) * radius;
+    if (i === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
   }
+  shape.closePath();
+  return new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false, steps: 1 });
+}
+
+function addBoltTekla(center, axis, dia, gripLen, matBolt, matWasher) {
+  const r = Math.max(0.003, dia / 2);
+
+  const boltLen = gripLen;            // largo “vástago”
+  const headH   = Math.max(0.006, dia * 0.6);
+  const nutH    = Math.max(0.006, dia * 0.6);
+  const washerH = Math.max(0.002, dia * 0.15);
+  const washerR = Math.max(0.008, dia * 1.1);
+  const hexR    = Math.max(0.008, dia * 0.95);
+
+  const A = new THREE.Vector3(axis.x, axis.y, axis.z).normalize();
+  const yAxis = new THREE.Vector3(0, 1, 0);
+  const q = new THREE.Quaternion().setFromUnitVectors(yAxis, A);
+
+  // vástago
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(r, r, boltLen, 16), matBolt);
+  shaft.position.copy(center);
+  shaft.quaternion.copy(q);
+
+  // para ubicar cabeza/tuerca en los extremos del vástago
+  const half = boltLen / 2;
+  const along = A.clone();
+
+  // arandela + cabeza (lado +A)
+  const w1 = new THREE.Mesh(new THREE.CylinderGeometry(washerR, washerR, washerH, 22), matWasher);
+  w1.quaternion.copy(q);
+  w1.position.copy(center).add(along.clone().multiplyScalar(half - washerH / 2));
+
+  const headG = hexPrismGeometry(THREE, hexR, headH);
+  headG.rotateX(Math.PI / 2); // porque extrude queda en Z
+  const head = new THREE.Mesh(headG, matBolt);
+  head.quaternion.copy(q);
+  head.position.copy(center).add(along.clone().multiplyScalar(half + headH / 2));
+
+  // arandela + tuerca (lado -A)
+  const w2 = new THREE.Mesh(new THREE.CylinderGeometry(washerR, washerR, washerH, 22), matWasher);
+  w2.quaternion.copy(q);
+  w2.position.copy(center).add(along.clone().multiplyScalar(-half + washerH / 2));
+
+  const nutG = hexPrismGeometry(THREE, hexR, nutH);
+  nutG.rotateX(Math.PI / 2);
+  const nut = new THREE.Mesh(nutG, matBolt);
+  nut.quaternion.copy(q);
+  nut.position.copy(center).add(along.clone().multiplyScalar(-half - nutH / 2));
+
+  // sombras
+  for (const m of [shaft, w1, w2, head, nut]) {
+    m.castShadow = true;
+    m.receiveShadow = true;
+    group.add(m);
+  }
+}
 
   const features = buildConnectionsFromModel(state.model);
   const plateFrames = new Map();
