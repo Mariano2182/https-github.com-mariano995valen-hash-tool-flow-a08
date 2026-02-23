@@ -1936,7 +1936,15 @@ function addBoltTekla(center, axis, dia, gripLen, matBolt, matWasher) {
   }
 }
 
-  const features = buildConnectionsFromModel(state.model);
+  const features = buildConnectionsFromModel(state.model, {
+  profiles: {
+    column: profCol,
+    rafter: profBeam,
+  },
+  plate: {
+    t: 0.012, // 12mm (ajustalo a tu estándar)
+  }
+});
   const plateFrames = new Map();
 
   for (const f of features) {
