@@ -1533,8 +1533,6 @@ function resetViewer() {
   if (st) st.textContent = "Visor reiniciado. Preview se reinicia al generar modelo.";
 }
 
-// ✅ Preview con sección real: ExtrudeGeometry(Shape)
-// ✅ Preview con sección real: ExtrudeGeometry(Shape)
 function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFeatures = []) {
   const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length();
@@ -1558,7 +1556,6 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
   geom.translate(0, 0, -len / 2);
 
   // Normales “limpias” (mejora shading + CSG)
-  // Nota: toNonIndexed duplica vértices → más pesado pero se ve mejor.
   let cleanGeom = geom;
   cleanGeom.computeVertexNormals();
   cleanGeom = cleanGeom.toNonIndexed();
@@ -1590,9 +1587,7 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
     const { Brush, Evaluator, SUBTRACTION } = CSG;
     const evaluator = new Evaluator();
 
-    // IMPORTANTÍSIMO: matrixWorld actualizado antes de Brush
     mesh.updateMatrixWorld(true);
-
     let resultBrush = new Brush(mesh.geometry.clone(), mesh.matrixWorld);
 
     for (const c of cutsForThis) {
@@ -1601,16 +1596,13 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
       const boxGeom = new THREE.BoxGeometry(c.w, c.h, c.d);
       const boxMesh = new THREE.Mesh(boxGeom);
 
-      // ejes del feature (en coordenadas del mundo)
       const X = new THREE.Vector3(c.axisX.x, c.axisX.y, c.axisX.z).normalize();
       const Y = new THREE.Vector3(c.axisY.x, c.axisY.y, c.axisY.z).normalize();
       const Z = new THREE.Vector3(c.axisZ.x, c.axisZ.y, c.axisZ.z).normalize();
 
-      // orientación del box
       const basis = new THREE.Matrix4().makeBasis(X, Y, Z);
       boxMesh.quaternion.setFromRotationMatrix(basis);
 
-      // centro del box: origin + centerLocal proyectado en ejes
       const org = new THREE.Vector3(c.origin.x, c.origin.y, c.origin.z);
       const cl = c.centerLocal || { x: 0, y: 0, z: 0 };
 
@@ -1627,10 +1619,7 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
       resultBrush = evaluator.evaluate(resultBrush, cutBrush, SUBTRACTION);
     }
 
-    // Mesh final post-cortes
     const finalGeom = resultBrush.geometry;
-
-    // mejora visual: normales luego del booleano
     finalGeom.computeVertexNormals();
     const finalClean = finalGeom.toNonIndexed();
     finalClean.computeVertexNormals();
@@ -1640,7 +1629,7 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
     mesh.castShadow = true;
     mesh.receiveShadow = false;
 
-    // IMPORTANTE: conservar pose/orientación
+    // conservar pose/orientación
     mesh.quaternion.copy(q);
     mesh.position.copy(mid);
     mesh.updateMatrixWorld(true);
