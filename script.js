@@ -71,6 +71,19 @@ const FASTENER_CATALOG = {
   bulon_m16: { label: "Bulón hex M16", kg_each: 0.14 },
 };
 
+// -------------------- PERFILES (SECCIÓN REAL) --------------------
+// Dimensiones en METROS (m). Sin radios (simplificado, pero con forma real).
+// kind: "I" (IPE/HEB), "C" (Canal), "Z" (Zeta)
+const PROFILE_CATALOG = {
+  // Primaria (ejemplo)
+  IPE300: { kind: "I", h: 0.300, b: 0.150, tw: 0.007, tf: 0.011 },
+  HEB300: { kind: "I", h: 0.300, b: 0.300, tw: 0.011, tf: 0.019 },
+
+  // Secundaria (ejemplo)
+  C200: { kind: "C", h: 0.200, b: 0.070, t: 0.003 },
+  Z200: { kind: "Z", h: 0.200, b: 0.070, t: 0.003 },
+};
+
 // Calcula bulones M16 para el modelo paramétrico (estimación)
 function estimateBoltsM16(model) {
   const b = model?.building;
@@ -1533,66 +1546,54 @@ function resetViewer() {
   if (st) st.textContent = "Visor reiniciado. Preview se reinicia al generar modelo.";
 }
 
+// ✅ Preview con sección real: ExtrudeGeometry(Shape)
+// ✅ Preview con sección real: ExtrudeGeometry(Shape)
 function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFeatures = []) {
   const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length();
-  if (len <= 1e-4) return;
+  if (len <= 0.0001) return;
 
-  const zAxis = new THREE.Vector3(0, 0, 1);
-  const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.clone().normalize());
-  const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
+  // ---------- PERFIL REAL (Shape + Extrude) ----------
+  const pts = profilePolygon(profileSpec);
 
-  let geom = null;
+  const shape = new THREE.Shape();
+  shape.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i].x, pts[i].y);
+  shape.closePath();
 
-  // ---------------- PERFIL REAL (intento) ----------------
-  try {
-    const pts = profilePolygon(profileSpec);
+  const geom = new THREE.ExtrudeGeometry(shape, {
+    depth: len,
+    bevelEnabled: false,
+    steps: 1,
+  });
 
-    // validación mínima
-    if (!pts || pts.length < 3) throw new Error("Perfil sin puntos");
-    for (const p of pts) {
-      if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) throw new Error("Punto inválido en perfil");
-    }
+  // Centrar en Z para rotar fácil luego
+  geom.translate(0, 0, -len / 2);
 
-    const shape = new THREE.Shape();
-    shape.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i].x, pts[i].y);
-    shape.closePath();
+  // Normales “limpias” (mejora shading + CSG)
+  // Nota: toNonIndexed duplica vértices → más pesado pero se ve mejor.
+  let cleanGeom = geom;
+  cleanGeom.computeVertexNormals();
+  cleanGeom = cleanGeom.toNonIndexed();
+  cleanGeom.computeVertexNormals();
 
-    geom = new THREE.ExtrudeGeometry(shape, {
-      depth: len,
-      bevelEnabled: false,
-      steps: 1,
-    });
-
-    geom.translate(0, 0, -len / 2);
-
-    // shading limpio
-    geom.computeVertexNormals();
-    geom = geom.toNonIndexed();
-    geom.computeVertexNormals();
-  } catch (e) {
-    // ---------------- FALLBACK (C/Z suelen romper) ----------------
-    // Si el perfil es C/Z o el shape falla → caja simple para que se vea
-    const h = Math.max(0.02, Number(profileSpec?.h) || 0.2);
-    const bSec = Math.max(0.02, Number(profileSpec?.b) || 0.07);
-
-    // Caja: X = "ancho", Y = "alto", Z = "largo"
-    geom = new THREE.BoxGeometry(bSec, h, len);
-    geom.translate(0, 0, 0); // Box ya viene centrada
-  }
-
-  // ---------------- MESH BASE ----------------
-  let mesh = new THREE.Mesh(geom, material);
+  // ---------- MESH BASE ----------
+  let mesh = new THREE.Mesh(cleanGeom, material);
   mesh.name = memberName || "MEMBER";
 
+  // orientar a -> b (eje Z local apunta en dirección del miembro)
+  const zAxis = new THREE.Vector3(0, 0, 1);
+  const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.clone().normalize());
   mesh.quaternion.copy(q);
+
+  // ubicar en el punto medio
+  const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
   mesh.position.copy(mid);
 
   mesh.castShadow = true;
   mesh.receiveShadow = false;
 
-  // ---------------- CORTES (CSG) ----------------
+  // ---------- CORTES (CSG) ----------
   const CSG = state.preview?.CSG;
   const cutsForThis = (cutFeatures || []).filter(
     (f) => f.kind === "CUT" && f.target === mesh.name
@@ -1602,7 +1603,9 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
     const { Brush, Evaluator, SUBTRACTION } = CSG;
     const evaluator = new Evaluator();
 
+    // IMPORTANTÍSIMO: matrixWorld actualizado antes de Brush
     mesh.updateMatrixWorld(true);
+
     let resultBrush = new Brush(mesh.geometry.clone(), mesh.matrixWorld);
 
     for (const c of cutsForThis) {
@@ -1611,15 +1614,19 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
       const boxGeom = new THREE.BoxGeometry(c.w, c.h, c.d);
       const boxMesh = new THREE.Mesh(boxGeom);
 
+      // ejes del feature (en coordenadas del mundo)
       const X = new THREE.Vector3(c.axisX.x, c.axisX.y, c.axisX.z).normalize();
       const Y = new THREE.Vector3(c.axisY.x, c.axisY.y, c.axisY.z).normalize();
       const Z = new THREE.Vector3(c.axisZ.x, c.axisZ.y, c.axisZ.z).normalize();
 
+      // orientación del box
       const basis = new THREE.Matrix4().makeBasis(X, Y, Z);
       boxMesh.quaternion.setFromRotationMatrix(basis);
 
+      // centro del box: origin + centerLocal proyectado en ejes
       const org = new THREE.Vector3(c.origin.x, c.origin.y, c.origin.z);
       const cl = c.centerLocal || { x: 0, y: 0, z: 0 };
+
       const center = org
         .clone()
         .add(X.clone().multiplyScalar(cl.x))
@@ -1633,7 +1640,10 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
       resultBrush = evaluator.evaluate(resultBrush, cutBrush, SUBTRACTION);
     }
 
+    // Mesh final post-cortes
     const finalGeom = resultBrush.geometry;
+
+    // mejora visual: normales luego del booleano
     finalGeom.computeVertexNormals();
     const finalClean = finalGeom.toNonIndexed();
     finalClean.computeVertexNormals();
@@ -1643,14 +1653,14 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
     mesh.castShadow = true;
     mesh.receiveShadow = false;
 
-    // conservar pose
+    // IMPORTANTE: conservar pose/orientación
     mesh.quaternion.copy(q);
     mesh.position.copy(mid);
     mesh.updateMatrixWorld(true);
   }
 
   parent.add(mesh);
-}
+  }
   
 function fitToGroup(THREE, camera, controls, group) {
   const box = new THREE.Box3().setFromObject(group);
@@ -1712,16 +1722,6 @@ const matGirt = new THREE.MeshStandardMaterial({
   const profBeam = getProfileSpec("cabio");
   const profPurl = getProfileSpec("correas");
   const profGirt = getProfileSpec("correas_columna");
-  
-  // ✅ Features de conexiones (incluye CUTS, PLATES, BOLTS)
-const features = buildConnectionsFromModel(state.model, {
-  profiles: { column: profCol, rafter: profBeam },
-  plate: { t: 0.016 },
-  cope: { clearance: 0.003 },
-});
-
-// ✅ SOLO los cortes para CSG
-const cutFeatures = features.filter(f => f.kind === "CUT");
 
   function roofY(x) {
     if (roof === "plana") return height;
@@ -1734,74 +1734,95 @@ const cutFeatures = features.filter(f => f.kind === "CUT");
   }
 
   // -------------------- ESTRUCTURA --------------------
-for (let i = 0; i < frames; i++) {
-  const z = i * step;
+  for (let i = 0; i < frames; i++) {
+    const z = i * step;
 
-  let topL = new THREE.Vector3(-halfSpan, height, z);
-  let topR = new THREE.Vector3(halfSpan, height, z);
+    let topL = new THREE.Vector3(-halfSpan, height, z);
+    let topR = new THREE.Vector3(halfSpan, height, z);
 
-  if (roof === "una_agua") {
-    topR = new THREE.Vector3(halfSpan, height + span * slope, z);
+    if (roof === "una_agua") {
+      topR = new THREE.Vector3(halfSpan, height + span * slope, z);
+    }
+
+    const baseL = new THREE.Vector3(-halfSpan, 0, z);
+    const baseR = new THREE.Vector3(halfSpan, 0, z);
+
+    addMember(THREE, group, baseL, topL, profCol, matCol);
+    addMember(THREE, group, baseR, topR, profCol, matCol);
+
+    if (roof === "plana") {
+      addMember(
+        THREE,
+        group,
+        new THREE.Vector3(-halfSpan, roofY(-halfSpan), z),
+        new THREE.Vector3(halfSpan, roofY(halfSpan), z),
+        profBeam,
+        matRafter
+      );
+    } else if (roof === "una_agua") {
+      addMember(THREE, group, topL, topR, profBeam, matRafter);
+    } else {
+      const eaveL = new THREE.Vector3(-halfSpan, height, z);
+      const eaveR = new THREE.Vector3(halfSpan, height, z);
+      const ridge = new THREE.Vector3(0, height + halfSpan * slope, z);
+
+      addMember(THREE, group, eaveL, ridge, profBeam, matRafter);
+      addMember(THREE, group, ridge, eaveR, profBeam, matRafter);
+    }
   }
 
-  const baseL = new THREE.Vector3(-halfSpan, 0, z);
-  const baseR = new THREE.Vector3(halfSpan, 0, z);
+  const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
 
-  // columnas
-  addMember(THREE, group, baseL, topL, profCol, matCol, `COL-L-${i + 1}`, cutFeatures);
-  addMember(THREE, group, baseR, topR, profCol, matCol, `COL-R-${i + 1}`, cutFeatures);
+  for (let bay = 0; bay < frames - 1; bay++) {
+    const z0 = bay * step;
+    const z1 = (bay + 1) * step;
 
-  // vigas/cabios
-  if (roof === "plana") {
-    addMember(
-      THREE,
-      group,
-      new THREE.Vector3(-halfSpan, roofY(-halfSpan), z),
-      new THREE.Vector3(halfSpan, roofY(halfSpan), z),
-      profBeam,
-      matRafter,
-      `BEAM-${i + 1}`,
-      cutFeatures
-    );
-  } else if (roof === "una_agua") {
-    addMember(
-      THREE,
-      group,
-      topL,
-      topR,
-      profBeam,
-      matRafter,
-      `RAF-${i + 1}`,
-      cutFeatures
-    );
-  } else {
-    const eaveL = new THREE.Vector3(-halfSpan, height, z);
-    const eaveR = new THREE.Vector3(halfSpan, height, z);
-    const ridge = new THREE.Vector3(0, height + halfSpan * slope, z);
+    if (roof === "dos_aguas") {
+      const halfLines = Math.max(1, Math.floor(linesAcross / 2));
 
-    addMember(
-      THREE,
-      group,
-      eaveL,
-      ridge,
-      profBeam,
-      matRafter,
-      `RAF-L-${i + 1}`,
-      cutFeatures
-    );
+      for (let k = 0; k <= halfLines; k++) {
+        const x = -halfSpan + (k / halfLines) * halfSpan;
+        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
+      }
 
-    addMember(
-      THREE,
-      group,
-      ridge,
-      eaveR,
-      profBeam,
-      matRafter,
-      `RAF-R-${i + 1}`,
-      cutFeatures
-    );
+      for (let k = 1; k <= halfLines; k++) {
+        const x = (k / halfLines) * halfSpan;
+        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
+      }
+
+      addMember(THREE, group, new THREE.Vector3(0, roofY(0), z0), new THREE.Vector3(0, roofY(0), z1), profPurl, matPurlin);
+    } else {
+      for (let k = 0; k <= linesAcross; k++) {
+        const x = -halfSpan + (k / linesAcross) * span;
+        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
+      }
+    }
   }
-}
+
+  for (let bay = 0; bay < frames - 1; bay++) {
+    const z0 = bay * step;
+    const z1 = (bay + 1) * step;
+
+    const topL = height;
+    const topR = roof === "una_agua" ? height + span * slope : height;
+
+    const startY = 1.2;
+    const maxYL = Math.max(startY, topL - 0.3);
+    const maxYR = Math.max(startY, topR - 0.3);
+
+    const levelsL = Math.max(2, Math.floor((maxYL - startY) / Math.max(0.1, girtSpacing)) + 1);
+    const levelsR = Math.max(2, Math.floor((maxYR - startY) / Math.max(0.1, girtSpacing)) + 1);
+
+    for (let i = 0; i < levelsL; i++) {
+      const y = Math.min(maxYL, startY + i * girtSpacing);
+      addMember(THREE, group, new THREE.Vector3(-halfSpan, y, z0), new THREE.Vector3(-halfSpan, y, z1), profGirt, matGirt);
+    }
+
+    for (let i = 0; i < levelsR; i++) {
+      const y = Math.min(maxYR, startY + i * girtSpacing);
+      addMember(THREE, group, new THREE.Vector3(halfSpan, y, z0), new THREE.Vector3(halfSpan, y, z1), profGirt, matGirt);
+    }
+  }
 
   // -------------------- CONEXIONES (placas + bulones) --------------------
   const matPlate = new THREE.MeshStandardMaterial({ color: 0xd1d5db, metalness: 0.25, roughness: 0.55 });
@@ -1915,6 +1936,18 @@ function addBoltTekla(center, axis, dia, gripLen, matBolt, matWasher) {
   }
 }
 
+  const features = buildConnectionsFromModel(state.model, {
+  profiles: {
+    column: profCol,
+    rafter: profBeam,
+  },
+  plate: {
+    t: 0.016, // 16mm (ajustalo a tu estándar)
+  },
+    cope: {
+      clearance: 0.003, // 3mm
+      },
+});
   const plateFrames = new Map();
 
   for (const f of features) {
