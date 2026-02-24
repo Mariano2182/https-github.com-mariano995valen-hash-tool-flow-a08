@@ -71,19 +71,6 @@ const FASTENER_CATALOG = {
   bulon_m16: { label: "Bulón hex M16", kg_each: 0.14 },
 };
 
-// -------------------- PERFILES (SECCIÓN REAL) --------------------
-// Dimensiones en METROS (m). Sin radios (simplificado, pero con forma real).
-// kind: "I" (IPE/HEB), "C" (Canal), "Z" (Zeta)
-const PROFILE_CATALOG = {
-  // Primaria (ejemplo)
-  IPE300: { kind: "I", h: 0.300, b: 0.150, tw: 0.007, tf: 0.011 },
-  HEB300: { kind: "I", h: 0.300, b: 0.300, tw: 0.011, tf: 0.019 },
-
-  // Secundaria (ejemplo)
-  C200: { kind: "C", h: 0.200, b: 0.070, t: 0.003 },
-  Z200: { kind: "Z", h: 0.200, b: 0.070, t: 0.003 },
-};
-
 // Calcula bulones M16 para el modelo paramétrico (estimación)
 function estimateBoltsM16(model) {
   const b = model?.building;
