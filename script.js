@@ -1536,48 +1536,63 @@ function resetViewer() {
 function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFeatures = []) {
   const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length();
-  if (len <= 0.0001) return;
+  if (len <= 1e-4) return;
 
-  // ---------- PERFIL REAL (Shape + Extrude) ----------
-  const pts = profilePolygon(profileSpec);
-
-  const shape = new THREE.Shape();
-  shape.moveTo(pts[0].x, pts[0].y);
-  for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i].x, pts[i].y);
-  shape.closePath();
-
-  const geom = new THREE.ExtrudeGeometry(shape, {
-    depth: len,
-    bevelEnabled: false,
-    steps: 1,
-  });
-
-  // Centrar en Z para rotar fácil luego
-  geom.translate(0, 0, -len / 2);
-
-  // Normales “limpias” (mejora shading + CSG)
-  let cleanGeom = geom;
-  cleanGeom.computeVertexNormals();
-  cleanGeom = cleanGeom.toNonIndexed();
-  cleanGeom.computeVertexNormals();
-
-  // ---------- MESH BASE ----------
-  let mesh = new THREE.Mesh(cleanGeom, material);
-  mesh.name = memberName || "MEMBER";
-
-  // orientar a -> b (eje Z local apunta en dirección del miembro)
   const zAxis = new THREE.Vector3(0, 0, 1);
   const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.clone().normalize());
-  mesh.quaternion.copy(q);
-
-  // ubicar en el punto medio
   const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
+
+  let geom = null;
+
+  // ---------------- PERFIL REAL (intento) ----------------
+  try {
+    const pts = profilePolygon(profileSpec);
+
+    // validación mínima
+    if (!pts || pts.length < 3) throw new Error("Perfil sin puntos");
+    for (const p of pts) {
+      if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) throw new Error("Punto inválido en perfil");
+    }
+
+    const shape = new THREE.Shape();
+    shape.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i].x, pts[i].y);
+    shape.closePath();
+
+    geom = new THREE.ExtrudeGeometry(shape, {
+      depth: len,
+      bevelEnabled: false,
+      steps: 1,
+    });
+
+    geom.translate(0, 0, -len / 2);
+
+    // shading limpio
+    geom.computeVertexNormals();
+    geom = geom.toNonIndexed();
+    geom.computeVertexNormals();
+  } catch (e) {
+    // ---------------- FALLBACK (C/Z suelen romper) ----------------
+    // Si el perfil es C/Z o el shape falla → caja simple para que se vea
+    const h = Math.max(0.02, Number(profileSpec?.h) || 0.2);
+    const bSec = Math.max(0.02, Number(profileSpec?.b) || 0.07);
+
+    // Caja: X = "ancho", Y = "alto", Z = "largo"
+    geom = new THREE.BoxGeometry(bSec, h, len);
+    geom.translate(0, 0, 0); // Box ya viene centrada
+  }
+
+  // ---------------- MESH BASE ----------------
+  let mesh = new THREE.Mesh(geom, material);
+  mesh.name = memberName || "MEMBER";
+
+  mesh.quaternion.copy(q);
   mesh.position.copy(mid);
 
   mesh.castShadow = true;
   mesh.receiveShadow = false;
 
-  // ---------- CORTES (CSG) ----------
+  // ---------------- CORTES (CSG) ----------------
   const CSG = state.preview?.CSG;
   const cutsForThis = (cutFeatures || []).filter(
     (f) => f.kind === "CUT" && f.target === mesh.name
@@ -1605,7 +1620,6 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
 
       const org = new THREE.Vector3(c.origin.x, c.origin.y, c.origin.z);
       const cl = c.centerLocal || { x: 0, y: 0, z: 0 };
-
       const center = org
         .clone()
         .add(X.clone().multiplyScalar(cl.x))
@@ -1629,7 +1643,7 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
     mesh.castShadow = true;
     mesh.receiveShadow = false;
 
-    // conservar pose/orientación
+    // conservar pose
     mesh.quaternion.copy(q);
     mesh.position.copy(mid);
     mesh.updateMatrixWorld(true);
