@@ -1930,8 +1930,8 @@ function addBoltTekla(center, axis, dia, gripLen, matBolt, matWasher) {
     group.add(m);
   }
 }
-
 });
+
   const plateFrames = new Map();
 
   for (const f of features) {
