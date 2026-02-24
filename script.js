@@ -1720,93 +1720,74 @@ const cutFeatures = features.filter(f => f.kind === "CUT");
   }
 
   // -------------------- ESTRUCTURA --------------------
-  for (let i = 0; i < frames; i++) {
-    const z = i * step;
+for (let i = 0; i < frames; i++) {
+  const z = i * step;
 
-    let topL = new THREE.Vector3(-halfSpan, height, z);
-    let topR = new THREE.Vector3(halfSpan, height, z);
+  let topL = new THREE.Vector3(-halfSpan, height, z);
+  let topR = new THREE.Vector3(halfSpan, height, z);
 
-    if (roof === "una_agua") {
-      topR = new THREE.Vector3(halfSpan, height + span * slope, z);
-    }
+  if (roof === "una_agua") {
+    topR = new THREE.Vector3(halfSpan, height + span * slope, z);
+  }
 
-    const baseL = new THREE.Vector3(-halfSpan, 0, z);
-    const baseR = new THREE.Vector3(halfSpan, 0, z);
+  const baseL = new THREE.Vector3(-halfSpan, 0, z);
+  const baseR = new THREE.Vector3(halfSpan, 0, z);
 
-    addMember(THREE, group, baseL, topL, profCol, matCol, `COL-L-${i + 1}`, cutFeatures);
-addMember(THREE, group, baseR, topR, profCol, matCol, `COL-R-${i + 1}`, cutFeatures);
+  // columnas
+  addMember(THREE, group, baseL, topL, profCol, matCol, `COL-L-${i + 1}`, cutFeatures);
+  addMember(THREE, group, baseR, topR, profCol, matCol, `COL-R-${i + 1}`, cutFeatures);
 
-if (roof === "plana") {
-  addMember(
-    THREE,
-    group,
-    new THREE.Vector3(-halfSpan, roofY(-halfSpan), z),
-    new THREE.Vector3(halfSpan, roofY(halfSpan), z),
-    profBeam,
-    matRafter,
-    `BEAM-${i + 1}`,
-    cutFeatures
-  );
-} else if (roof === "una_agua") {
-  addMember(THREE, group, topL, topR, profBeam, matRafter, `RAF-${i + 1}`, cutFeatures);
-} else {
-  addMember(THREE, group, eaveL, ridge, profBeam, matRafter, `RAF-L-${i + 1}`, cutFeatures);
-  addMember(THREE, group, ridge, eaveR, profBeam, matRafter, `RAF-R-${i + 1}`, cutFeatures);
+  // vigas/cabios
+  if (roof === "plana") {
+    addMember(
+      THREE,
+      group,
+      new THREE.Vector3(-halfSpan, roofY(-halfSpan), z),
+      new THREE.Vector3(halfSpan, roofY(halfSpan), z),
+      profBeam,
+      matRafter,
+      `BEAM-${i + 1}`,
+      cutFeatures
+    );
+  } else if (roof === "una_agua") {
+    addMember(
+      THREE,
+      group,
+      topL,
+      topR,
+      profBeam,
+      matRafter,
+      `RAF-${i + 1}`,
+      cutFeatures
+    );
+  } else {
+    const eaveL = new THREE.Vector3(-halfSpan, height, z);
+    const eaveR = new THREE.Vector3(halfSpan, height, z);
+    const ridge = new THREE.Vector3(0, height + halfSpan * slope, z);
+
+    addMember(
+      THREE,
+      group,
+      eaveL,
+      ridge,
+      profBeam,
+      matRafter,
+      `RAF-L-${i + 1}`,
+      cutFeatures
+    );
+
+    addMember(
+      THREE,
+      group,
+      ridge,
+      eaveR,
+      profBeam,
+      matRafter,
+      `RAF-R-${i + 1}`,
+      cutFeatures
+    );
+  }
 }
-  }
-
-  const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
-
-  for (let bay = 0; bay < frames - 1; bay++) {
-    const z0 = bay * step;
-    const z1 = (bay + 1) * step;
-
-    if (roof === "dos_aguas") {
-      const halfLines = Math.max(1, Math.floor(linesAcross / 2));
-
-      for (let k = 0; k <= halfLines; k++) {
-        const x = -halfSpan + (k / halfLines) * halfSpan;
-        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
-      }
-
-      for (let k = 1; k <= halfLines; k++) {
-        const x = (k / halfLines) * halfSpan;
-        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
-      }
-
-      addMember(THREE, group, new THREE.Vector3(0, roofY(0), z0), new THREE.Vector3(0, roofY(0), z1), profPurl, matPurlin);
-    } else {
-      for (let k = 0; k <= linesAcross; k++) {
-        const x = -halfSpan + (k / linesAcross) * span;
-        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
-      }
-    }
-  }
-
-  for (let bay = 0; bay < frames - 1; bay++) {
-    const z0 = bay * step;
-    const z1 = (bay + 1) * step;
-
-    const topL = height;
-    const topR = roof === "una_agua" ? height + span * slope : height;
-
-    const startY = 1.2;
-    const maxYL = Math.max(startY, topL - 0.3);
-    const maxYR = Math.max(startY, topR - 0.3);
-
-    const levelsL = Math.max(2, Math.floor((maxYL - startY) / Math.max(0.1, girtSpacing)) + 1);
-    const levelsR = Math.max(2, Math.floor((maxYR - startY) / Math.max(0.1, girtSpacing)) + 1);
-
-    for (let i = 0; i < levelsL; i++) {
-      const y = Math.min(maxYL, startY + i * girtSpacing);
-      addMember(THREE, group, new THREE.Vector3(-halfSpan, y, z0), new THREE.Vector3(-halfSpan, y, z1), profGirt, matGirt);
-    }
-
-    for (let i = 0; i < levelsR; i++) {
-      const y = Math.min(maxYR, startY + i * girtSpacing);
-      addMember(THREE, group, new THREE.Vector3(halfSpan, y, z0), new THREE.Vector3(halfSpan, y, z1), profGirt, matGirt);
-    }
-  }
 
   // -------------------- CONEXIONES (placas + bulones) --------------------
   const matPlate = new THREE.MeshStandardMaterial({ color: 0xd1d5db, metalness: 0.25, roughness: 0.55 });
