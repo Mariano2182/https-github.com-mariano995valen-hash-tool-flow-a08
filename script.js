@@ -1919,7 +1919,6 @@ function addBoltTekla(center, axis, dia, gripLen, matBolt, matWasher) {
     group.add(m);
   }
 }
-});
 
   const plateFrames = new Map();
 
