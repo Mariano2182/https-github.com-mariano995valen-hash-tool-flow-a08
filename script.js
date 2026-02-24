@@ -1942,10 +1942,10 @@ function addBoltTekla(center, axis, dia, gripLen, matBolt, matWasher) {
     rafter: profBeam,
   },
   plate: {
-    t: 0.012, // 12mm (ajustalo a tu estándar)
+    t: 0.016, // 16mm (ajustalo a tu estándar)
   },
     cope: {
-      clearance: 0.004, // 4mm
+      clearance: 0.003, // 3mm
       },
 });
   const plateFrames = new Map();
