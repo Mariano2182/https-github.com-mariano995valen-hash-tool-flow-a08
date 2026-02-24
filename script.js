@@ -1660,7 +1660,7 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
   }
 
   parent.add(mesh);
-  }
+}
   
 function fitToGroup(THREE, camera, controls, group) {
   const box = new THREE.Box3().setFromObject(group);
