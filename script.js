@@ -1722,6 +1722,16 @@ const matGirt = new THREE.MeshStandardMaterial({
   const profBeam = getProfileSpec("cabio");
   const profPurl = getProfileSpec("correas");
   const profGirt = getProfileSpec("correas_columna");
+  
+  // ✅ Features de conexiones (incluye CUTS, PLATES, BOLTS)
+const features = buildConnectionsFromModel(state.model, {
+  profiles: { column: profCol, rafter: profBeam },
+  plate: { t: 0.016 },
+  cope: { clearance: 0.003 },
+});
+
+// ✅ SOLO los cortes para CSG
+const cutFeatures = features.filter(f => f.kind === "CUT");
 
   function roofY(x) {
     if (roof === "plana") return height;
@@ -1936,17 +1946,6 @@ function addBoltTekla(center, axis, dia, gripLen, matBolt, matWasher) {
   }
 }
 
-  const features = buildConnectionsFromModel(state.model, {
-  profiles: {
-    column: profCol,
-    rafter: profBeam,
-  },
-  plate: {
-    t: 0.016, // 16mm (ajustalo a tu estándar)
-  },
-    cope: {
-      clearance: 0.003, // 3mm
-      },
 });
   const plateFrames = new Map();
 
