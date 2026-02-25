@@ -8,11 +8,16 @@
 // ✅ AHORA: Secciones reales (I / C / Z) en IFC y Preview 3D
 //    - IFC: IfcArbitraryClosedProfileDef + IfcExtrudedAreaSolid
 //    - Preview 3D: THREE.Shape + ExtrudeGeometry
+// ✅ FIX: miembros nombrados + cortes CSG aplicados SOLO al target (correas/largueros vuelven a verse)
+// ✅ FIX: renderParametricPreview usa cutsFor() + addMember(memberName, cutFeatures)
+// ✅ FIX: buildConnectionsFromModel se calcula ANTES de armar miembros para poder cortar pórticos/cabios
 
 const qs = (sel, parent = document) => parent.querySelector(sel);
 const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
+
 import { buildConnectionsFromModel } from "./lib/connections/index.js";
 import { getProfileSpec, profilePolygon } from "./lib/profiles/index.js";
+
 const state = {
   session: null,
   role: null,
@@ -24,6 +29,7 @@ const state = {
     ready: false,
     THREE: null,
     OrbitControls: null,
+    CSG: null,
     renderer: null,
     scene: null,
     camera: null,
@@ -73,7 +79,6 @@ const FASTENER_CATALOG = {
 
 // -------------------- PERFILES (SECCIÓN REAL) --------------------
 // Dimensiones en METROS (m). Sin radios (simplificado, pero con forma real).
-// kind: "I" (IPE/HEB), "C" (Canal), "Z" (Zeta)
 const PROFILE_CATALOG = {
   // Primaria (ejemplo)
   IPE300: { kind: "I", h: 0.300, b: 0.150, tw: 0.007, tf: 0.011 },
@@ -417,7 +422,7 @@ function bindIndustrialControls() {
     if (action === "connect-supabase") connectSupabase();
     if (action === "save-remote") saveRemoteVersion();
     if (action === "load-remote") loadRemoteVersion();
-    if (action === "export-ifc") exportIFC(); // ✅ IFC Export REAL
+    if (action === "export-ifc") exportIFC();
   });
 
   const ifcInput = qs("#ifc-file");
@@ -989,7 +994,6 @@ function buildSegmentsFromModel(model) {
   function elementTypeFrom(kind, name) {
     if (kind === "COLUMN") return "columna";
     if (kind === "BEAM") return name?.startsWith("BEAM-") ? "viga" : "cabio";
-    // MEMBER: correas vs largueros
     if (String(name || "").startsWith("GIRT-")) return "correas_columna";
     return "correas";
   }
@@ -1140,7 +1144,6 @@ class IFCWriter {
     const uLen = this.add("IFCSIUNIT", `$,.LENGTHUNIT.,.METRE.,$`);
     const uArea = this.add("IFCSIUNIT", `$,.AREAUNIT.,.SQUARE_METRE.,$`);
     const uVol = this.add("IFCSIUNIT", `$,.VOLUMEUNIT.,.CUBIC_METRE.,$`);
-    // ✅ FIX: unidad masa correcta y sin romper sintaxis
     const uMass = this.add("IFCSIUNIT", `$,.MASSUNIT.,.KILOGRAM.,$`);
     const unitAssignment = this.add("IFCUNITASSIGNMENT", ifcList([ifcRef(uLen), ifcRef(uArea), ifcRef(uVol), ifcRef(uMass)]));
 
@@ -1213,11 +1216,9 @@ class IFCWriter {
     return lp;
   }
 
-  // ✅ Perfil arbitrario cerrado extruido (sección real)
   makeExtrudedProfileShape({ context, profileSpec, depth }) {
     const pts = profilePolygon(profileSpec);
 
-    // IFCPOLYLINE: lista de IFCCARTESIANPOINT 2D
     const ptIds = pts.map((p) => this.add("IFCCARTESIANPOINT", `(${ifcNum(p.x)},${ifcNum(p.y)})`));
     const poly = this.add("IFCPOLYLINE", ifcList(ptIds.map((id) => ifcRef(id))));
 
@@ -1379,12 +1380,9 @@ async function ensurePreview3D() {
   if (!container) return false;
 
   try {
-    // ✅ IMPORTS ESM “GitHub Pages friendly”
-    // (mantenemos una sola versión de three para evitar incompatibilidades)
     const THREE = await import("https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js");
     const oc = await import("https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/controls/OrbitControls.js");
 
-    // ✅ CLAVE: esm.sh resuelve bare imports (three-mesh-bvh) automáticamente
     const CSG = await import("https://esm.sh/three-bvh-csg@0.0.7?deps=three@0.158.0");
 
     state.preview.THREE = THREE;
@@ -1415,7 +1413,6 @@ async function ensurePreview3D() {
     renderer.setSize(w0, h0);
     container.appendChild(renderer.domElement);
 
-    // ✅ sombras
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -1437,7 +1434,6 @@ async function ensurePreview3D() {
     controls.screenSpacePanning = true;
     controls.target.set(0, 6, 20);
 
-    // ✅ suelo
     const groundSize = 320;
     const groundThickness = 0.6;
     const groundGeom = new BoxGeometry(groundSize, groundThickness, groundSize);
@@ -1532,6 +1528,7 @@ function resetViewer() {
   state.preview.ready = false;
   state.preview.THREE = null;
   state.preview.OrbitControls = null;
+  state.preview.CSG = null;
   state.preview.renderer = null;
   state.preview.scene = null;
   state.preview.camera = null;
@@ -1546,16 +1543,17 @@ function resetViewer() {
   if (st) st.textContent = "Visor reiniciado. Preview se reinicia al generar modelo.";
 }
 
-// ✅ Preview con sección real: ExtrudeGeometry(Shape)
-// ✅ Preview con sección real: ExtrudeGeometry(Shape)
+// ✅ helper: devuelve SOLO los CUTs que apuntan a este miembro
+const cutsFor = (cutFeatures, name) =>
+  (cutFeatures || []).filter((f) => f.kind === "CUT" && f.target === name);
+
+// ✅ Preview con sección real: ExtrudeGeometry(Shape) + CSG robusto
 function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFeatures = []) {
   const dir = new THREE.Vector3().subVectors(b, a);
   const len = dir.length();
-  if (len <= 0.0001) return;
+  if (len <= 1e-6) return;
 
-  // ---------- PERFIL REAL (Shape + Extrude) ----------
   const pts = profilePolygon(profileSpec);
-
   const shape = new THREE.Shape();
   shape.moveTo(pts[0].x, pts[0].y);
   for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i].x, pts[i].y);
@@ -1567,45 +1565,34 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
     steps: 1,
   });
 
-  // Centrar en Z para rotar fácil luego
   geom.translate(0, 0, -len / 2);
 
-  // Normales “limpias” (mejora shading + CSG)
-  // Nota: toNonIndexed duplica vértices → más pesado pero se ve mejor.
-  let cleanGeom = geom;
-  cleanGeom.computeVertexNormals();
-  cleanGeom = cleanGeom.toNonIndexed();
-  cleanGeom.computeVertexNormals();
+  let baseGeom = geom;
+  baseGeom.computeVertexNormals();
+  baseGeom = baseGeom.toNonIndexed();
+  baseGeom.computeVertexNormals();
 
-  // ---------- MESH BASE ----------
-  let mesh = new THREE.Mesh(cleanGeom, material);
-  mesh.name = memberName || "MEMBER";
-
-  // orientar a -> b (eje Z local apunta en dirección del miembro)
   const zAxis = new THREE.Vector3(0, 0, 1);
   const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir.clone().normalize());
-  mesh.quaternion.copy(q);
-
-  // ubicar en el punto medio
   const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
-  mesh.position.copy(mid);
 
+  let mesh = new THREE.Mesh(baseGeom, material);
+  mesh.name = memberName || "MEMBER";
+  mesh.quaternion.copy(q);
+  mesh.position.copy(mid);
   mesh.castShadow = true;
   mesh.receiveShadow = false;
 
-  // ---------- CORTES (CSG) ----------
   const CSG = state.preview?.CSG;
-  const cutsForThis = (cutFeatures || []).filter(
-    (f) => f.kind === "CUT" && f.target === mesh.name
-  );
+
+  // ✅ IMPORTANTE: si no viene memberName, evitamos aplicar cortes (porque target no matchea)
+  const cutsForThis = memberName ? cutsFor(cutFeatures, memberName) : [];
 
   if (CSG && cutsForThis.length) {
     const { Brush, Evaluator, SUBTRACTION } = CSG;
     const evaluator = new Evaluator();
 
-    // IMPORTANTÍSIMO: matrixWorld actualizado antes de Brush
     mesh.updateMatrixWorld(true);
-
     let resultBrush = new Brush(mesh.geometry.clone(), mesh.matrixWorld);
 
     for (const c of cutsForThis) {
@@ -1614,16 +1601,13 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
       const boxGeom = new THREE.BoxGeometry(c.w, c.h, c.d);
       const boxMesh = new THREE.Mesh(boxGeom);
 
-      // ejes del feature (en coordenadas del mundo)
       const X = new THREE.Vector3(c.axisX.x, c.axisX.y, c.axisX.z).normalize();
       const Y = new THREE.Vector3(c.axisY.x, c.axisY.y, c.axisY.z).normalize();
       const Z = new THREE.Vector3(c.axisZ.x, c.axisZ.y, c.axisZ.z).normalize();
 
-      // orientación del box
       const basis = new THREE.Matrix4().makeBasis(X, Y, Z);
       boxMesh.quaternion.setFromRotationMatrix(basis);
 
-      // centro del box: origin + centerLocal proyectado en ejes
       const org = new THREE.Vector3(c.origin.x, c.origin.y, c.origin.z);
       const cl = c.centerLocal || { x: 0, y: 0, z: 0 };
 
@@ -1640,10 +1624,7 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
       resultBrush = evaluator.evaluate(resultBrush, cutBrush, SUBTRACTION);
     }
 
-    // Mesh final post-cortes
     const finalGeom = resultBrush.geometry;
-
-    // mejora visual: normales luego del booleano
     finalGeom.computeVertexNormals();
     const finalClean = finalGeom.toNonIndexed();
     finalClean.computeVertexNormals();
@@ -1653,15 +1634,14 @@ function addMember(THREE, parent, a, b, profileSpec, material, memberName, cutFe
     mesh.castShadow = true;
     mesh.receiveShadow = false;
 
-    // IMPORTANTE: conservar pose/orientación
     mesh.quaternion.copy(q);
     mesh.position.copy(mid);
     mesh.updateMatrixWorld(true);
   }
 
   parent.add(mesh);
-  }
-  
+}
+
 function fitToGroup(THREE, camera, controls, group) {
   const box = new THREE.Box3().setFromObject(group);
   const size = box.getSize(new THREE.Vector3());
@@ -1694,34 +1674,25 @@ async function renderParametricPreview() {
   const halfSpan = span / 2;
   const step = frames > 1 ? length / (frames - 1) : length;
 
-  const matCol = new THREE.MeshStandardMaterial({
-  color: 0x1e3a8a,     // azul más profundo
-  metalness: 0.35,
-  roughness: 0.45
-});
-
-const matRafter = new THREE.MeshStandardMaterial({
-  color: 0x0369a1,
-  metalness: 0.35,
-  roughness: 0.45
-});
-
-const matPurlin = new THREE.MeshStandardMaterial({
-  color: 0x0f766e,
-  metalness: 0.30,
-  roughness: 0.50
-});
-
-const matGirt = new THREE.MeshStandardMaterial({
-  color: 0x475569,
-  metalness: 0.30,
-  roughness: 0.50
-});
+  const matCol = new THREE.MeshStandardMaterial({ color: 0x1e3a8a, metalness: 0.35, roughness: 0.45 });
+  const matRafter = new THREE.MeshStandardMaterial({ color: 0x0369a1, metalness: 0.35, roughness: 0.45 });
+  const matPurlin = new THREE.MeshStandardMaterial({ color: 0x0f766e, metalness: 0.30, roughness: 0.50 });
+  const matGirt = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.30, roughness: 0.50 });
 
   const profCol = getProfileSpec("columna");
   const profBeam = getProfileSpec("cabio");
   const profPurl = getProfileSpec("correas");
   const profGirt = getProfileSpec("correas_columna");
+
+  // ✅ conexiones: calcular ANTES para tener CUTs disponibles
+  const features = buildConnectionsFromModel(state.model, {
+    profiles: { column: profCol, rafter: profBeam },
+    plate: { t: 0.016 },
+    cope: { clearance: 0.003 },
+  });
+
+  // ✅ SOLO cortes para CSG
+  const cutFeatures = (features || []).filter((f) => f.kind === "CUT");
 
   function roofY(x) {
     if (roof === "plana") return height;
@@ -1733,7 +1704,7 @@ const matGirt = new THREE.MeshStandardMaterial({
     return height + (1 - t) * (halfSpan * slope);
   }
 
-  // -------------------- ESTRUCTURA --------------------
+  // -------------------- ESTRUCTURA (NOMBRES + CORTES POR MIEMBRO) --------------------
   for (let i = 0; i < frames; i++) {
     const z = i * step;
 
@@ -1747,30 +1718,47 @@ const matGirt = new THREE.MeshStandardMaterial({
     const baseL = new THREE.Vector3(-halfSpan, 0, z);
     const baseR = new THREE.Vector3(halfSpan, 0, z);
 
-    addMember(THREE, group, baseL, topL, profCol, matCol);
-    addMember(THREE, group, baseR, topR, profCol, matCol);
+    {
+      const name = `COL-L-${i + 1}`;
+      addMember(THREE, group, baseL, topL, profCol, matCol, name, cutFeatures);
+    }
+    {
+      const name = `COL-R-${i + 1}`;
+      addMember(THREE, group, baseR, topR, profCol, matCol, name, cutFeatures);
+    }
 
     if (roof === "plana") {
+      const name = `BEAM-${i + 1}`;
       addMember(
         THREE,
         group,
         new THREE.Vector3(-halfSpan, roofY(-halfSpan), z),
         new THREE.Vector3(halfSpan, roofY(halfSpan), z),
         profBeam,
-        matRafter
+        matRafter,
+        name,
+        cutFeatures
       );
     } else if (roof === "una_agua") {
-      addMember(THREE, group, topL, topR, profBeam, matRafter);
+      const name = `RAF-${i + 1}`;
+      addMember(THREE, group, topL, topR, profBeam, matRafter, name, cutFeatures);
     } else {
       const eaveL = new THREE.Vector3(-halfSpan, height, z);
       const eaveR = new THREE.Vector3(halfSpan, height, z);
       const ridge = new THREE.Vector3(0, height + halfSpan * slope, z);
 
-      addMember(THREE, group, eaveL, ridge, profBeam, matRafter);
-      addMember(THREE, group, ridge, eaveR, profBeam, matRafter);
+      {
+        const name = `RAF-L-${i + 1}`;
+        addMember(THREE, group, eaveL, ridge, profBeam, matRafter, name, cutFeatures);
+      }
+      {
+        const name = `RAF-R-${i + 1}`;
+        addMember(THREE, group, ridge, eaveR, profBeam, matRafter, name, cutFeatures);
+      }
     }
   }
 
+  // -------------------- CORREAS --------------------
   const linesAcross = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
 
   for (let bay = 0; bay < frames - 1; bay++) {
@@ -1782,23 +1770,66 @@ const matGirt = new THREE.MeshStandardMaterial({
 
       for (let k = 0; k <= halfLines; k++) {
         const x = -halfSpan + (k / halfLines) * halfSpan;
-        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
+        const name = `PURLIN-L-${bay + 1}-${k + 1}`;
+        addMember(
+          THREE,
+          group,
+          new THREE.Vector3(x, roofY(x), z0),
+          new THREE.Vector3(x, roofY(x), z1),
+          profPurl,
+          matPurlin,
+          name,
+          cutFeatures
+        );
       }
 
       for (let k = 1; k <= halfLines; k++) {
         const x = (k / halfLines) * halfSpan;
-        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
+        const name = `PURLIN-R-${bay + 1}-${k + 1}`;
+        addMember(
+          THREE,
+          group,
+          new THREE.Vector3(x, roofY(x), z0),
+          new THREE.Vector3(x, roofY(x), z1),
+          profPurl,
+          matPurlin,
+          name,
+          cutFeatures
+        );
       }
 
-      addMember(THREE, group, new THREE.Vector3(0, roofY(0), z0), new THREE.Vector3(0, roofY(0), z1), profPurl, matPurlin);
+      {
+        const name = `PURLIN-RIDGE-${bay + 1}`;
+        addMember(
+          THREE,
+          group,
+          new THREE.Vector3(0, roofY(0), z0),
+          new THREE.Vector3(0, roofY(0), z1),
+          profPurl,
+          matPurlin,
+          name,
+          cutFeatures
+        );
+      }
     } else {
       for (let k = 0; k <= linesAcross; k++) {
         const x = -halfSpan + (k / linesAcross) * span;
-        addMember(THREE, group, new THREE.Vector3(x, roofY(x), z0), new THREE.Vector3(x, roofY(x), z1), profPurl, matPurlin);
+        const name = `PURLIN-${bay + 1}-${k + 1}`;
+        addMember(
+          THREE,
+          group,
+          new THREE.Vector3(x, roofY(x), z0),
+          new THREE.Vector3(x, roofY(x), z1),
+          profPurl,
+          matPurlin,
+          name,
+          cutFeatures
+        );
       }
     }
   }
 
+  // -------------------- LARGUEROS --------------------
   for (let bay = 0; bay < frames - 1; bay++) {
     const z0 = bay * step;
     const z1 = (bay + 1) * step;
@@ -1815,139 +1846,140 @@ const matGirt = new THREE.MeshStandardMaterial({
 
     for (let i = 0; i < levelsL; i++) {
       const y = Math.min(maxYL, startY + i * girtSpacing);
-      addMember(THREE, group, new THREE.Vector3(-halfSpan, y, z0), new THREE.Vector3(-halfSpan, y, z1), profGirt, matGirt);
+      const name = `GIRT-L-${bay + 1}-${i + 1}`;
+      addMember(
+        THREE,
+        group,
+        new THREE.Vector3(-halfSpan, y, z0),
+        new THREE.Vector3(-halfSpan, y, z1),
+        profGirt,
+        matGirt,
+        name,
+        cutFeatures
+      );
     }
 
     for (let i = 0; i < levelsR; i++) {
       const y = Math.min(maxYR, startY + i * girtSpacing);
-      addMember(THREE, group, new THREE.Vector3(halfSpan, y, z0), new THREE.Vector3(halfSpan, y, z1), profGirt, matGirt);
+      const name = `GIRT-R-${bay + 1}-${i + 1}`;
+      addMember(
+        THREE,
+        group,
+        new THREE.Vector3(halfSpan, y, z0),
+        new THREE.Vector3(halfSpan, y, z1),
+        profGirt,
+        matGirt,
+        name,
+        cutFeatures
+      );
     }
   }
 
   // -------------------- CONEXIONES (placas + bulones) --------------------
   const matPlate = new THREE.MeshStandardMaterial({ color: 0xd1d5db, metalness: 0.25, roughness: 0.55 });
-  const matBolt  = new THREE.MeshStandardMaterial({ color: 0x111827, metalness: 0.2, roughness: 0.6 });
+  const matBolt = new THREE.MeshStandardMaterial({ color: 0x111827, metalness: 0.2, roughness: 0.6 });
 
   function addPlate(origin, axisZ, axisX, w, h, t) {
-  const Z = new THREE.Vector3(axisZ.x, axisZ.y, axisZ.z).normalize();
-  let X = new THREE.Vector3(axisX.x, axisX.y, axisX.z).normalize();
-  if (Math.abs(X.dot(Z)) > 0.95) X = new THREE.Vector3(1, 0, 0);
-  const Y = new THREE.Vector3().crossVectors(Z, X).normalize();
-  X = new THREE.Vector3().crossVectors(Y, Z).normalize();
+    const Z = new THREE.Vector3(axisZ.x, axisZ.y, axisZ.z).normalize();
+    let X = new THREE.Vector3(axisX.x, axisX.y, axisX.z).normalize();
+    if (Math.abs(X.dot(Z)) > 0.95) X = new THREE.Vector3(1, 0, 0);
+    const Y = new THREE.Vector3().crossVectors(Z, X).normalize();
+    X = new THREE.Vector3().crossVectors(Y, Z).normalize();
 
-  // placa con bevel
-  const chamfer = Math.min(Math.max(t * 0.25, 0.001), 0.004);
-  const s = new THREE.Shape();
-  s.moveTo(-w/2, -h/2);
-  s.lineTo( w/2, -h/2);
-  s.lineTo( w/2,  h/2);
-  s.lineTo(-w/2,  h/2);
-  s.closePath();
+    const chamfer = Math.min(Math.max(t * 0.25, 0.001), 0.004);
+    const s = new THREE.Shape();
+    s.moveTo(-w / 2, -h / 2);
+    s.lineTo(w / 2, -h / 2);
+    s.lineTo(w / 2, h / 2);
+    s.lineTo(-w / 2, h / 2);
+    s.closePath();
 
-  const geom = new THREE.ExtrudeGeometry(s, {
-    depth: t,
-    bevelEnabled: true,
-    bevelThickness: chamfer,
-    bevelSize: chamfer,
-    bevelSegments: 2,
-    steps: 1
-  });
+    const geom = new THREE.ExtrudeGeometry(s, {
+      depth: t,
+      bevelEnabled: true,
+      bevelThickness: chamfer,
+      bevelSize: chamfer,
+      bevelSegments: 2,
+      steps: 1,
+    });
 
-  // centrar espesor
-  geom.translate(0, 0, -t/2);
-  geom.computeVertexNormals();
+    geom.translate(0, 0, -t / 2);
+    geom.computeVertexNormals();
 
-  const mesh = new THREE.Mesh(geom, matPlate);
-  mesh.position.set(origin.x, origin.y, origin.z);
+    const mesh = new THREE.Mesh(geom, matPlate);
+    mesh.position.set(origin.x, origin.y, origin.z);
 
-  const m = new THREE.Matrix4().makeBasis(X, Y, Z);
-  mesh.quaternion.setFromRotationMatrix(m);
+    const m = new THREE.Matrix4().makeBasis(X, Y, Z);
+    mesh.quaternion.setFromRotationMatrix(m);
 
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  group.add(mesh);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
 
-  return { origin: new THREE.Vector3(origin.x, origin.y, origin.z), X, Y, Z };
-}
+    return { origin: new THREE.Vector3(origin.x, origin.y, origin.z), X, Y, Z };
+  }
 
   function hexPrismGeometry(THREE, radius, height) {
-  const shape = new THREE.Shape();
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2;
-    const x = Math.cos(a) * radius;
-    const y = Math.sin(a) * radius;
-    if (i === 0) shape.moveTo(x, y);
-    else shape.lineTo(x, y);
+    const shape = new THREE.Shape();
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const x = Math.cos(a) * radius;
+      const y = Math.sin(a) * radius;
+      if (i === 0) shape.moveTo(x, y);
+      else shape.lineTo(x, y);
+    }
+    shape.closePath();
+    return new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false, steps: 1 });
   }
-  shape.closePath();
-  return new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false, steps: 1 });
-}
 
-function addBoltTekla(center, axis, dia, gripLen, matBolt, matWasher) {
-  const r = Math.max(0.003, dia / 2);
+  function addBoltTekla(center, axis, dia, gripLen, matBolt, matWasher) {
+    const r = Math.max(0.003, dia / 2);
 
-  const boltLen = gripLen;            // largo “vástago”
-  const headH   = Math.max(0.006, dia * 0.6);
-  const nutH    = Math.max(0.006, dia * 0.6);
-  const washerH = Math.max(0.002, dia * 0.15);
-  const washerR = Math.max(0.008, dia * 1.1);
-  const hexR    = Math.max(0.008, dia * 0.95);
+    const boltLen = gripLen;
+    const headH = Math.max(0.006, dia * 0.6);
+    const nutH = Math.max(0.006, dia * 0.6);
+    const washerH = Math.max(0.002, dia * 0.15);
+    const washerR = Math.max(0.008, dia * 1.1);
+    const hexR = Math.max(0.008, dia * 0.95);
 
-  const A = new THREE.Vector3(axis.x, axis.y, axis.z).normalize();
-  const yAxis = new THREE.Vector3(0, 1, 0);
-  const q = new THREE.Quaternion().setFromUnitVectors(yAxis, A);
+    const A = new THREE.Vector3(axis.x, axis.y, axis.z).normalize();
+    const yAxis = new THREE.Vector3(0, 1, 0);
+    const q = new THREE.Quaternion().setFromUnitVectors(yAxis, A);
 
-  // vástago
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(r, r, boltLen, 16), matBolt);
-  shaft.position.copy(center);
-  shaft.quaternion.copy(q);
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(r, r, boltLen, 16), matBolt);
+    shaft.position.copy(center);
+    shaft.quaternion.copy(q);
 
-  // para ubicar cabeza/tuerca en los extremos del vástago
-  const half = boltLen / 2;
-  const along = A.clone();
+    const half = boltLen / 2;
+    const along = A.clone();
 
-  // arandela + cabeza (lado +A)
-  const w1 = new THREE.Mesh(new THREE.CylinderGeometry(washerR, washerR, washerH, 22), matWasher);
-  w1.quaternion.copy(q);
-  w1.position.copy(center).add(along.clone().multiplyScalar(half - washerH / 2));
+    const w1 = new THREE.Mesh(new THREE.CylinderGeometry(washerR, washerR, washerH, 22), matWasher);
+    w1.quaternion.copy(q);
+    w1.position.copy(center).add(along.clone().multiplyScalar(half - washerH / 2));
 
-  const headG = hexPrismGeometry(THREE, hexR, headH);
-  headG.rotateX(Math.PI / 2); // porque extrude queda en Z
-  const head = new THREE.Mesh(headG, matBolt);
-  head.quaternion.copy(q);
-  head.position.copy(center).add(along.clone().multiplyScalar(half + headH / 2));
+    const headG = hexPrismGeometry(THREE, hexR, headH);
+    headG.rotateX(Math.PI / 2);
+    const head = new THREE.Mesh(headG, matBolt);
+    head.quaternion.copy(q);
+    head.position.copy(center).add(along.clone().multiplyScalar(half + headH / 2));
 
-  // arandela + tuerca (lado -A)
-  const w2 = new THREE.Mesh(new THREE.CylinderGeometry(washerR, washerR, washerH, 22), matWasher);
-  w2.quaternion.copy(q);
-  w2.position.copy(center).add(along.clone().multiplyScalar(-half + washerH / 2));
+    const w2 = new THREE.Mesh(new THREE.CylinderGeometry(washerR, washerR, washerH, 22), matWasher);
+    w2.quaternion.copy(q);
+    w2.position.copy(center).add(along.clone().multiplyScalar(-half + washerH / 2));
 
-  const nutG = hexPrismGeometry(THREE, hexR, nutH);
-  nutG.rotateX(Math.PI / 2);
-  const nut = new THREE.Mesh(nutG, matBolt);
-  nut.quaternion.copy(q);
-  nut.position.copy(center).add(along.clone().multiplyScalar(-half - nutH / 2));
+    const nutG = hexPrismGeometry(THREE, hexR, nutH);
+    nutG.rotateX(Math.PI / 2);
+    const nut = new THREE.Mesh(nutG, matBolt);
+    nut.quaternion.copy(q);
+    nut.position.copy(center).add(along.clone().multiplyScalar(-half - nutH / 2));
 
-  // sombras
-  for (const m of [shaft, w1, w2, head, nut]) {
-    m.castShadow = true;
-    m.receiveShadow = true;
-    group.add(m);
+    for (const m of [shaft, w1, w2, head, nut]) {
+      m.castShadow = true;
+      m.receiveShadow = true;
+      group.add(m);
+    }
   }
-}
 
-  const features = buildConnectionsFromModel(state.model, {
-  profiles: {
-    column: profCol,
-    rafter: profBeam,
-  },
-  plate: {
-    t: 0.016, // 16mm (ajustalo a tu estándar)
-  },
-    cope: {
-      clearance: 0.003, // 3mm
-      },
-});
   const plateFrames = new Map();
 
   for (const f of features) {
@@ -1959,30 +1991,28 @@ function addBoltTekla(center, axis, dia, gripLen, matBolt, matWasher) {
   for (const f of features) {
     if (f.kind !== "BOLT_GROUP") continue;
 
-    // emparejamos con su placa (si existe)
     const guessPlateName = f.name.replace("BOLTS", "PLATE");
     const frame = plateFrames.get(guessPlateName);
 
     const origin = frame?.origin || new THREE.Vector3(f.origin.x, f.origin.y, f.origin.z);
     const X = frame?.X || new THREE.Vector3(f.axisX.x, f.axisX.y, f.axisX.z).normalize();
-    const Y = frame?.Y || new THREE.Vector3().crossVectors(new THREE.Vector3(f.axisZ.x, f.axisZ.y, f.axisZ.z).normalize(), X).normalize();
+    const Y =
+      frame?.Y ||
+      new THREE.Vector3().crossVectors(new THREE.Vector3(f.axisZ.x, f.axisZ.y, f.axisZ.z).normalize(), X).normalize();
     const Z = frame?.Z || new THREE.Vector3(f.axisZ.x, f.axisZ.y, f.axisZ.z).normalize();
 
     const boltAxis = Z;
     const boltDia = Number(f.bolt_d) || 0.016;
     const boltLen = Number(f.bolt_len) || 0.08;
 
-    for (const p of (f.pattern || [])) {
+    for (const p of f.pattern || []) {
       const cx = Number(p.x) || 0;
       const cy = Number(p.y) || 0;
 
-      const pos = origin
-        .clone()
-        .add(X.clone().multiplyScalar(cx))
-        .add(Y.clone().multiplyScalar(cy));
+      const pos = origin.clone().add(X.clone().multiplyScalar(cx)).add(Y.clone().multiplyScalar(cy));
 
       const matWasher = new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.35, roughness: 0.45 });
-addBoltTekla(pos, boltAxis, boltDia, boltLen, matBolt, matWasher);
+      addBoltTekla(pos, boltAxis, boltDia, boltLen, matBolt, matWasher);
     }
   }
 
