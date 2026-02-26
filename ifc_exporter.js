@@ -315,7 +315,7 @@ export function exportIFCFromModel(model, opts = {}) {
   const header =
 `ISO-10303-21;
 HEADER;
-FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');
+FILE_DESCRIPTION(('ViewDefinition [CoordinationView_V2.0]'),'2;1');
 FILE_NAME(${w.str("rmm_structures.ifc")},${w.str(time)},(${w.str(author)}),(${w.str(clientName || "RMM")}),${w.str("RMM STRUCTURES")},${w.str("RMM IFC Exporter")},${w.str("")});
 FILE_SCHEMA(('IFC4'));
 ENDSEC;
@@ -350,7 +350,9 @@ DATA;`;
   const site = w.add(`IFCSITE(${w.str(newGuid())},${w.ref(ownerHistory)},${w.str("Site")},$, $,${w.ref(sitePlacement)},$, $,${w.enum("ELEMENT")},$, $, $, $, $)`);
 
   const buildingPlacement = w.add(`IFCLOCALPLACEMENT(${w.ref(sitePlacement)},${w.ref(worldAxis)})`);
-  const building = w.add(`IFCBUILDING(${w.str(newGuid())},${w.ref(ownerHistory)},${w.str("Building")},$, $,${w.ref(buildingPlacement)},$, $,${w.enum("ELEMENT")},$, $, $, $)`);
+  const building = w.add(
+  `IFCBUILDING(${w.str(newGuid())},${w.ref(ownerHistory)},${w.str("Building")},$,$,${w.ref(buildingPlacement)},$,$,${w.enum("ELEMENT")},$,$,$)`
+);
 
   const storeyPlacement = w.add(`IFCLOCALPLACEMENT(${w.ref(buildingPlacement)},${w.ref(worldAxis)})`);
   const storey = w.add(`IFCBUILDINGSTOREY(${w.str(newGuid())},${w.ref(ownerHistory)},${w.str("Storey 00")},$, $,${w.ref(storeyPlacement)},$, $,${w.enum("ELEMENT")},0.)`);
