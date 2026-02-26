@@ -1217,10 +1217,19 @@ class IFCWriter {
   }
 
   makeExtrudedProfileShape({ context, profileSpec, depth }) {
-    const pts = profilePolygon(profileSpec);
+    const pts0 = profilePolygon(profileSpec);
 
-    const ptIds = pts.map((p) => this.add("IFCCARTESIANPOINT", `(${ifcNum(p.x)},${ifcNum(p.y)})`));
-    const poly = this.add("IFCPOLYLINE", ifcList(ptIds.map((id) => ifcRef(id))));
+// ✅ IFC: IfcPolyline debe cerrarse repitiendo el primer punto al final
+const pts = (pts0 && pts0.length)
+  ? [...pts0, { x: pts0[0].x, y: pts0[0].y }]
+  : pts0;
+
+// IFCPOLYLINE: lista de IFCCARTESIANPOINT 2D
+const ptIds = (pts || []).map((p) =>
+  this.add("IFCCARTESIANPOINT", `(${ifcNum(p.x)},${ifcNum(p.y)})`)
+);
+
+const poly = this.add("IFCPOLYLINE", ifcList(ptIds.map((id) => ifcRef(id))));
 
     const prof = this.add(
       "IFCARBITRARYCLOSEDPROFILEDEF",
