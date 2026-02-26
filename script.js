@@ -1380,10 +1380,11 @@ async function ensurePreview3D() {
   if (!container) return false;
 
   try {
-    const THREE = await import("https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js");
-    const oc = await import("https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/controls/OrbitControls.js");
+    const THREE = await import("three");
+const oc = await import("three/addons/controls/OrbitControls.js");
 
-    const CSG = await import("https://esm.sh/three-bvh-csg@0.0.7?deps=three@0.158.0");
+// CSG (usa "three" internamente -> ahora lo resuelve el importmap)
+const CSG = await import("https://esm.sh/three-bvh-csg@0.0.7");
 
     state.preview.THREE = THREE;
     state.preview.OrbitControls = oc.OrbitControls;
