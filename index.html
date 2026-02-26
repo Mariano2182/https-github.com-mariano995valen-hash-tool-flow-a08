@@ -13,22 +13,11 @@
       rel="stylesheet"
     />
 
-    <!-- ✅ IMPORTMAP (opcional; tu script.js actual usa imports dinámicos por URL)
-         Se deja igual para compatibilidad futura si cambiás a import "three". -->
-    <script type="importmap">
-      {
-        "imports": {
-          "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
-          "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/"
-        }
-      }
-    </script>
-<script type="module" src="script.js"></script>
     <!-- Supabase (opcional) -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-    <!-- ✅ Script principal (ESM) -->
-    <script type="module" src="script.js"></script>
+    <!-- ✅ Script principal (ESM) — UNA SOLA VEZ -->
+    <script type="module" src="./script.js"></script>
 
     <!-- ✅ Fallback si el usuario tiene JS deshabilitado -->
     <noscript>
@@ -156,6 +145,14 @@
               type="button"
             >
               Descargar BOM
+            </button>
+            <button
+              class="ghost"
+              data-action="export-ifc"
+              data-tooltip="Exportar modelo IFC4 con perfiles reales (extrusiones) + jerarquía BIM"
+              type="button"
+            >
+              Exportar IFC4
             </button>
           </div>
         </div>
@@ -357,6 +354,16 @@
                 >
                   Exportar JSON
                 </button>
+
+                <!-- ✅ NUEVO: Export IFC -->
+                <button
+                  class="ghost"
+                  data-action="export-ifc"
+                  data-tooltip="Exportar modelo IFC4 con perfiles reales (extrusión) + jerarquía BIM"
+                  type="button"
+                >
+                  Exportar IFC (IFC4)
+                </button>
               </div>
 
               <p class="helper" id="ifc-status">Visor listo. Podés generar un modelo.</p>
@@ -370,7 +377,7 @@
               <span class="status" id="viewer-status">Sin archivo</span>
             </div>
 
-            <!-- ✅ Fallback visual: si styles.css no aplica o queda sin alto, igual se ve -->
+            <!-- ✅ Fallback visual -->
             <div
               id="ifc-viewer"
               class="ifc-viewer"
@@ -394,14 +401,26 @@
                 </div>
               </div>
 
-              <button
-                class="ghost"
-                data-action="run-rules"
-                data-tooltip="Ejecutar reglas de validación sobre el modelo actual"
-                type="button"
-              >
-                Validar modelo
-              </button>
+              <div class="button-row" style="gap:10px;">
+                <button
+                  class="ghost"
+                  data-action="run-rules"
+                  data-tooltip="Ejecutar reglas de validación sobre el modelo actual"
+                  type="button"
+                >
+                  Validar modelo
+                </button>
+
+                <!-- ✅ NUEVO: Export IFC visible acá también -->
+                <button
+                  class="primary"
+                  data-action="export-ifc"
+                  data-tooltip="Exportar IFC4 con perfiles reales"
+                  type="button"
+                >
+                  Exportar IFC4
+                </button>
+              </div>
             </div>
           </section>
 
@@ -416,7 +435,6 @@
                       <th>Elemento</th>
                       <th>Cantidad</th>
                       <th>Peso (kg)</th>
-                      <!-- ✅ Compatible con el script nuevo: acá ahora puede aparecer m.l. o INFO/OK -->
                       <th>Info / Estado</th>
                     </tr>
                   </thead>
@@ -569,11 +587,23 @@
               >
                 Calcular geometría
               </button>
+
               <button class="ghost" data-action="export-bom" data-tooltip="Exportar listado BOM en CSV" type="button">
                 Exportar BOM
               </button>
+
               <button class="ghost" data-action="export-json" data-tooltip="Exportar el modelo en JSON" type="button">
                 Exportar JSON
+              </button>
+
+              <!-- ✅ NUEVO -->
+              <button
+                class="ghost"
+                data-action="export-ifc"
+                data-tooltip="Exportar IFC4 con perfiles reales (extrusión) + jerarquía BIM"
+                type="button"
+              >
+                Exportar IFC
               </button>
             </div>
             <p class="helper" id="geometry-status">Geometría pendiente de cálculo.</p>
