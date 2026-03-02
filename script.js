@@ -1159,17 +1159,18 @@ class IFCWriter {
       `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(this.projectName)},${ifcStr("")},$,$,$,${ifcList([ifcRef(context)])},${ifcRef(unitAssignment)}`
     );
 
-    const siteLoc = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
-    const siteAxis = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(siteLoc)},$,$`);
-    const sitePlacement = this.add("IFCLOCALPLACEMENT", `$,${ifcRef(siteAxis)}`);
+    // --- Placements separados (recomendado) ---
+const pSite = w.add(`IFCCARTESIANPOINT((0.,0.,0.))`);
+const axSite = w.add(`IFCAXIS2PLACEMENT3D(${w.ref(pSite)},$,$)`);
+const sitePlacement = w.add(`IFCLOCALPLACEMENT($,${w.ref(axSite)})`);
 
-    const bldLoc = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
-    const bldAxis = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(bldLoc)},$,$`);
-    const bldPlacement = this.add("IFCLOCALPLACEMENT", `${ifcRef(sitePlacement)},${ifcRef(bldAxis)}`);
+const pBld = w.add(`IFCCARTESIANPOINT((0.,0.,0.))`);
+const axBld = w.add(`IFCAXIS2PLACEMENT3D(${w.ref(pBld)},$,$)`);
+const buildingPlacement = w.add(`IFCLOCALPLACEMENT(${w.ref(sitePlacement)},${w.ref(axBld)})`);
 
-    const stLoc = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
-    const stAxis = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(stLoc)},$,$`);
-    const stPlacement = this.add("IFCLOCALPLACEMENT", `${ifcRef(bldPlacement)},${ifcRef(stAxis)}`);
+const pSty = w.add(`IFCCARTESIANPOINT((0.,0.,0.))`);
+const axSty = w.add(`IFCAXIS2PLACEMENT3D(${w.ref(pSty)},$,$)`);
+const storeyPlacement = w.add(`IFCLOCALPLACEMENT(${w.ref(buildingPlacement)},${w.ref(axSty)})`);
 
     const site = this.add(
       "IFCSITE",
