@@ -415,7 +415,11 @@ DATA;`;
     const extrDir = dirId(v3(0, 0, 1));
     const depth = len(sub(b, a));
 
-    const solid = w.add(`IFCEXTRUDEDAREASOLID(${w.ref(profile)},${w.ref(worldAxis)},${w.ref(extrDir)},${w.num(depth)})`);
+    const pSolid = w.add(`IFCCARTESIANPOINT((0.,0.,0.))`);
+const axSolid = w.add(`IFCAXIS2PLACEMENT3D(${w.ref(pSolid)},$,$)`);
+const solid = w.add(
+  `IFCEXTRUDEDAREASOLID(${w.ref(profile)},${w.ref(axSolid)},${w.ref(extrDir)},${w.num(depth)})`
+);
     const bodyRep = w.add(`IFCSHAPEREPRESENTATION(${w.ref(context)},${w.str("Body")},${w.str("SweptSolid")},(${w.ref(solid)}))`);
     const pdef = w.add(`IFCPRODUCTDEFINITIONSHAPE($,$,(${w.ref(bodyRep)}))`);
 
