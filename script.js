@@ -1132,77 +1132,85 @@ class IFCWriter {
   }
 
   buildBase({ buildingName = "Nave Industrial", storeyName = "Nivel 0" } = {}) {
-    const person = this.add("IFCPERSON", `${ifcStr("")},${ifcStr("")},${ifcStr("RMM")},$,$,$,$,$`);
-    const org = this.add("IFCORGANIZATION", `${ifcStr("")},${ifcStr("RMM")},${ifcStr("")},$,$`);
-    const pAndO = this.add("IFCPERSONANDORGANIZATION", `${ifcRef(person)},${ifcRef(org)},$`);
-    const app = this.add("IFCAPPLICATION", `${ifcRef(org)},${ifcStr("1.0")},${ifcStr("RMM Web")},${ifcStr("RMM_WEB")}`);
-    const ownerHistory = this.add(
-      "IFCOWNERHISTORY",
-      `${ifcRef(pAndO)},${ifcRef(app)},$,.ADDED.,$,$,$,${ifcNum(Date.now() / 1000)}`
-    );
+  // --- Owner / App ---
+  const person = this.add("IFCPERSON", `${ifcStr("")},${ifcStr("")},${ifcStr("RMM")},$,$,$,$,$`);
+  const org = this.add("IFCORGANIZATION", `${ifcStr("")},${ifcStr("RMM")},${ifcStr("")},$,$`);
+  const pAndO = this.add("IFCPERSONANDORGANIZATION", `${ifcRef(person)},${ifcRef(org)},$`);
+  const app = this.add("IFCAPPLICATION", `${ifcRef(org)},${ifcStr("1.0")},${ifcStr("RMM Web")},${ifcStr("RMM_WEB")}`);
+  const ownerHistory = this.add(
+    "IFCOWNERHISTORY",
+    `${ifcRef(pAndO)},${ifcRef(app)},$,.ADDED.,$,$,$,${ifcNum(Math.floor(Date.now() / 1000))}`
+  );
 
-    const uLen = this.add("IFCSIUNIT", `$,.LENGTHUNIT.,.METRE.,$`);
-    const uArea = this.add("IFCSIUNIT", `$,.AREAUNIT.,.SQUARE_METRE.,$`);
-    const uVol = this.add("IFCSIUNIT", `$,.VOLUMEUNIT.,.CUBIC_METRE.,$`);
-    const uMass = this.add("IFCSIUNIT", `$,.MASSUNIT.,.KILOGRAM.,$`);
-    const unitAssignment = this.add("IFCUNITASSIGNMENT", ifcList([ifcRef(uLen), ifcRef(uArea), ifcRef(uVol), ifcRef(uMass)]));
+  // --- Units (m, m2, m3, kg) ---
+  const uLen = this.add("IFCSIUNIT", `$,.LENGTHUNIT.,.METRE.,$`);
+  const uArea = this.add("IFCSIUNIT", `$,.AREAUNIT.,.SQUARE_METRE.,$`);
+  const uVol = this.add("IFCSIUNIT", `$,.VOLUMEUNIT.,.CUBIC_METRE.,$`);
+  const uMass = this.add("IFCSIUNIT", `$,.MASSUNIT.,.KILOGRAM.,$`);
+  const unitAssignment = this.add(
+    "IFCUNITASSIGNMENT",
+    ifcList([ifcRef(uLen), ifcRef(uArea), ifcRef(uVol), ifcRef(uMass)])
+  );
 
-    const originPt = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
-    const wcs = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(originPt)},$,$`);
-    const context = this.add(
-      "IFCGEOMETRICREPRESENTATIONCONTEXT",
-      `${ifcStr("Model")},${ifcStr("3D")},3,${ifcNum(1e-5)},${ifcRef(wcs)},$`
-    );
+  // --- Context ---
+  const originPt = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
+  const wcs = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(originPt)},$,$`);
+  const context = this.add(
+    "IFCGEOMETRICREPRESENTATIONCONTEXT",
+    `${ifcStr("")},${ifcStr("Model")},3,${ifcNum(1e-5)},${ifcRef(wcs)},$`
+  );
 
-    const project = this.add(
-      "IFCPROJECT",
-      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(this.projectName)},${ifcStr("")},$,$,$,${ifcList([ifcRef(context)])},${ifcRef(unitAssignment)}`
-    );
+  // --- Project ---
+  const project = this.add(
+    "IFCPROJECT",
+    `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(this.projectName)},$,$,$,$,${ifcList([ifcRef(context)])},${ifcRef(unitAssignment)}`
+  );
 
-    // --- Placements separados (recomendado) ---
-const pSite = w.add(`IFCCARTESIANPOINT((0.,0.,0.))`);
-const axSite = w.add(`IFCAXIS2PLACEMENT3D(${w.ref(pSite)},$,$)`);
-const sitePlacement = w.add(`IFCLOCALPLACEMENT($,${w.ref(axSite)})`);
+  // --- Placements correctos (sin w.*) ---
+  const pSite = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
+  const axSite = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(pSite)},$,$`);
+  const sitePlacement = this.add("IFCLOCALPLACEMENT", `$ ,${ifcRef(axSite)}`.replace(" $", "$")); // evita doble espacio
 
-const pBld = w.add(`IFCCARTESIANPOINT((0.,0.,0.))`);
-const axBld = w.add(`IFCAXIS2PLACEMENT3D(${w.ref(pBld)},$,$)`);
-const buildingPlacement = w.add(`IFCLOCALPLACEMENT(${w.ref(sitePlacement)},${w.ref(axBld)})`);
+  const pBld = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
+  const axBld = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(pBld)},$,$`);
+  const buildingPlacement = this.add("IFCLOCALPLACEMENT", `${ifcRef(sitePlacement)},${ifcRef(axBld)}`);
 
-const pSty = w.add(`IFCCARTESIANPOINT((0.,0.,0.))`);
-const axSty = w.add(`IFCAXIS2PLACEMENT3D(${w.ref(pSty)},$,$)`);
-const storeyPlacement = w.add(`IFCLOCALPLACEMENT(${w.ref(buildingPlacement)},${w.ref(axSty)})`);
+  const pSty = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
+  const axSty = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(pSty)},$,$`);
+  const storeyPlacement = this.add("IFCLOCALPLACEMENT", `${ifcRef(buildingPlacement)},${ifcRef(axSty)}`);
 
-    const site = this.add(
-      "IFCSITE",
-      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Site")},${ifcStr("")},$,$,${ifcRef(sitePlacement)},$,$,.ELEMENT.,$,$,$,$,$`
-    );
+  // --- Spatial structure ---
+  const site = this.add(
+    "IFCSITE",
+    `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Site")},$,$,${ifcRef(sitePlacement)},$,$,.ELEMENT.,$,$,$,$,$`
+  );
 
-    const building = this.add(
-      "IFCBUILDING",
-      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(buildingName)},${ifcStr("")},$,$,${ifcRef(bldPlacement)},$,$,.ELEMENT.,$,$,$`
-    );
+  const building = this.add(
+    "IFCBUILDING",
+    `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(buildingName)},$,$,${ifcRef(buildingPlacement)},$,$,.ELEMENT.,$,$,$`
+  );
 
-    const storey = this.add(
-      "IFCBUILDINGSTOREY",
-      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(storeyName)},${ifcStr("")},$,$,${ifcRef(stPlacement)},$,$,.ELEMENT.,${ifcNum(0)}`
-    );
+  const storey = this.add(
+    "IFCBUILDINGSTOREY",
+    `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr(storeyName)},$,$,${ifcRef(storeyPlacement)},$,$,.ELEMENT.,${ifcNum(0)}`
+  );
 
-    this.add(
-      "IFCRELAGGREGATES",
-      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,${ifcRef(project)},${ifcList([ifcRef(site)])}`
-    );
-    this.add(
-      "IFCRELAGGREGATES",
-      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,${ifcRef(site)},${ifcList([ifcRef(building)])}`
-    );
-    this.add(
-      "IFCRELAGGREGATES",
-      `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Aggregates")},$,${ifcRef(building)},${ifcList([ifcRef(storey)])}`
-    );
+  // Aggregates
+  this.add(
+    "IFCRELAGGREGATES",
+    `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Project->Site")},$,${ifcRef(project)},${ifcList([ifcRef(site)])}`
+  );
+  this.add(
+    "IFCRELAGGREGATES",
+    `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Site->Building")},$,${ifcRef(site)},${ifcList([ifcRef(building)])}`
+  );
+  this.add(
+    "IFCRELAGGREGATES",
+    `${ifcStr(ifcGuid())},${ifcRef(ownerHistory)},${ifcStr("Building->Storey")},$,${ifcRef(building)},${ifcList([ifcRef(storey)])}`
+  );
 
-    return { ownerHistory, context, project, site, building, storey, storeyPlacement: stPlacement };
-  }
-
+  return { ownerHistory, context, project, site, building, storey, storeyPlacement };
+}
   makeMemberPlacement({ storeyPlacement, start, dirUnit }) {
     const z = vNorm(dirUnit);
     const up = Math.abs(vDot(z, v3(0, 0, 1))) > 0.95 ? v3(0, 1, 0) : v3(0, 0, 1);
