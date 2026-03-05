@@ -1241,9 +1241,9 @@ const ptIds = (pts || []).map((p) =>
 const poly = this.add("IFCPOLYLINE", ifcList(ptIds.map((id) => ifcRef(id))));
 
     const prof = this.add(
-      "IFCARBITRARYCLOSEDPROFILEDEF",
-      `.AREA.,${ifcStr(profileSpec.code || "")},$,${ifcRef(poly)}`
-    );
+  "IFCARBITRARYCLOSEDPROFILEDEF",
+  `.AREA.,${ifcStr(profileSpec.code || "")},${ifcRef(poly)}`
+);
 
     const solidPosPt = this.add("IFCCARTESIANPOINT", ifcPt(v3(0, 0, 0)));
     const solidPos = this.add("IFCAXIS2PLACEMENT3D", `${ifcRef(solidPosPt)},$,$`);
