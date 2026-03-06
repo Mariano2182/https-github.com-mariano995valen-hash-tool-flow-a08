@@ -768,7 +768,9 @@ function trClassForTechRow(t) {
 function renderBOMFromModel() {
   const tbody = qs("#materials-table");
   if (!tbody) return;
-
+const profs = state.model?.building?.profiles || {};
+  `Perfiles: COL ${profs.column || "-"} | RAF ${profs.rafter || "-"} | PUR ${profs.purlin || "-"} | GIR ${profs.girt || "-"}`
+  
   if (!state.model) {
     tbody.innerHTML = `<tr><td colspan="4">Generá un modelo o cargá un IFC.</td></tr>`;
     return;
