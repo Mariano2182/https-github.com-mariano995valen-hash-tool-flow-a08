@@ -573,10 +573,10 @@ function computeEngineering(model) {
 // -------------------- MODELO PARAMÉTRICO (JSON) --------------------
 function generateModelFromIndustrial() {
   const profileColumn = qs("#ind-profile-column")?.value || "HEB300";
-const profileRafter = qs("#ind-profile-rafter")?.value || "IPE300";
-const profilePurlin = qs("#ind-profile-purlin")?.value || "Z200x70x15x3";
-const profileGirt = qs("#ind-profile-girt")?.value || "C200x70x15x3";
-  
+  const profileRafter = qs("#ind-profile-rafter")?.value || "IPE300";
+  const profilePurlin = qs("#ind-profile-purlin")?.value || "Z200x70x15x3";
+  const profileGirt = qs("#ind-profile-girt")?.value || "C200x70x15x3";
+
   const span = Number(qs("#ind-span")?.value || 24);
   const length = Number(qs("#ind-length")?.value || 60);
   const height = Number(qs("#ind-height")?.value || 8);
@@ -596,7 +596,12 @@ const profileGirt = qs("#ind-profile-girt")?.value || "C200x70x15x3";
   state.version += 1;
 
   const model = {
-    meta: { createdAt: nowISO(), version: state.version, unit: "m", source: "RMM Industrial UI" },
+    meta: {
+      createdAt: nowISO(),
+      version: state.version,
+      unit: "m",
+      source: "RMM Industrial UI",
+    },
     building: {
       type: "nave",
       roof,
@@ -611,46 +616,89 @@ const profileGirt = qs("#ind-profile-girt")?.value || "C200x70x15x3";
       bays,
       step,
       profiles: {
-  column: profileColumn,
-  rafter: profileRafter,
-  purlin: profilePurlin,
-  girt: profileGirt,
-},
+        column: profileColumn,
+        rafter: profileRafter,
+        purlin: profilePurlin,
+        girt: profileGirt,
+      },
     },
     elements: [],
   };
 
+  // masas reales desde catálogo
+  const mCol = getMassKgM("columna", model);
+  const mRafter = getMassKgM("cabio", model);
+  const mPurl = getMassKgM("correas", model);
+  const mGirt = getMassKgM("correas_columna", model);
+
+  // pórticos principales
   for (let i = 0; i < frames; i++) {
-    model.elements.push({ id: `COL-L-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
-    model.elements.push({ id: `COL-R-${i + 1}`, type: "columna", qty: 1, length: height, weightKg: height * 90 });
+    model.elements.push({
+      id: `COL-L-${i + 1}`,
+      type: "columna",
+      qty: 1,
+      length: height,
+      weightKg: height * mCol,
+      profile: profileColumn,
+    });
+
+    model.elements.push({
+      id: `COL-R-${i + 1}`,
+      type: "columna",
+      qty: 1,
+      length: height,
+      weightKg: height * mCol,
+      profile: profileColumn,
+    });
 
     if (roof === "dos_aguas") {
       const rafterLen = Math.hypot(span / 2, (span / 2) * slope);
-      model.elements.push({ id: `RAF-L-${i + 1}`, type: "cabio", qty: 1, length: rafterLen, weightKg: rafterLen * 40 });
-      model.elements.push({ id: `RAF-R-${i + 1}`, type: "cabio", qty: 1, length: rafterLen, weightKg: rafterLen * 40 });
+
+      model.elements.push({
+        id: `RAF-L-${i + 1}`,
+        type: "cabio",
+        qty: 1,
+        length: rafterLen,
+        weightKg: rafterLen * mRafter,
+        profile: profileRafter,
+      });
+
+      model.elements.push({
+        id: `RAF-R-${i + 1}`,
+        type: "cabio",
+        qty: 1,
+        length: rafterLen,
+        weightKg: rafterLen * mRafter,
+        profile: profileRafter,
+      });
     } else {
       const beamLen = Math.hypot(span, roof === "una_agua" ? span * slope : 0);
+
       model.elements.push({
         id: `BEAM-${i + 1}`,
         type: roof === "plana" ? "viga" : "cabio",
         qty: 1,
         length: beamLen,
-        weightKg: beamLen * 55,
+        weightKg: beamLen * mRafter,
+        profile: profileRafter,
       });
     }
   }
 
+  // correas de techo
   const purlinLines = Math.max(2, Math.floor(span / Math.max(0.1, purlinSpacing)) + 1);
   const purlinMembers = purlinLines * bays;
 
   model.elements.push({
-    id: `PURLINS`,
+    id: "PURLINS",
     type: "correas",
     qty: purlinMembers,
     length: step,
-    weightKg: purlinMembers * step * 8,
+    weightKg: purlinMembers * step * mPurl,
+    profile: profilePurlin,
   });
 
+  // largueros de pared
   const startY = 1.2;
   const topL = height;
   const topR = roof === "una_agua" ? height + span * slope : height;
@@ -664,11 +712,12 @@ const profileGirt = qs("#ind-profile-girt")?.value || "C200x70x15x3";
   const girtMembers = (levelsL + levelsR) * bays;
 
   model.elements.push({
-    id: `GIRTS`,
+    id: "GIRTS",
     type: "correas_columna",
     qty: girtMembers,
     length: step,
-    weightKg: girtMembers * step * 6,
+    weightKg: girtMembers * step * mGirt,
+    profile: profileGirt,
   });
 
   model.building.purlinLines = purlinLines;
@@ -690,7 +739,11 @@ const profileGirt = qs("#ind-profile-girt")?.value || "C200x70x15x3";
   runRules();
 
   const st = qs("#ifc-status");
-  if (st) st.textContent = "Modelo generado. Preview 3D actualizado.";
+  if (st) {
+    st.textContent =
+      `Modelo generado. Preview 3D actualizado. ` +
+      `Perfiles: COL ${profileColumn} | RAF ${profileRafter} | PUR ${profilePurlin} | GIR ${profileGirt}`;
+  }
 
   renderParametricPreview();
 }
