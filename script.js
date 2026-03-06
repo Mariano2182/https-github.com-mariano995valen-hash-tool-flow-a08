@@ -610,6 +610,12 @@ const profileGirt = qs("#ind-profile-girt")?.value || "C200x70x15x3";
       girtSpacing,
       bays,
       step,
+      profiles: {
+  column: profileColumn,
+  rafter: profileRafter,
+  purlin: profilePurlin,
+  girt: profileGirt,
+},
     },
     elements: [],
   };
