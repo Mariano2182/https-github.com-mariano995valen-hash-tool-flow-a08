@@ -1709,10 +1709,10 @@ async function renderParametricPreview() {
   const matPurlin = new THREE.MeshStandardMaterial({ color: 0x0f766e, metalness: 0.30, roughness: 0.50 });
   const matGirt = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.30, roughness: 0.50 });
 
-  const profCol = getProfileSpec("columna");
-  const profBeam = getProfileSpec("cabio");
-  const profPurl = getProfileSpec("correas");
-  const profGirt = getProfileSpec("correas_columna");
+  const profCol = getProfileSpec("columna", state.model);
+const profBeam = getProfileSpec("cabio", state.model);
+const profPurl = getProfileSpec("correas", state.model);
+const profGirt = getProfileSpec("correas_columna", state.model);
 
   // ✅ conexiones: calcular ANTES para tener CUTs disponibles
   const features = buildConnectionsFromModel(state.model, {
