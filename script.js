@@ -1015,8 +1015,7 @@ function buildSegmentsFromModel(model) {
     if (len <= 1e-6) return;
 
     const type = elementTypeFrom(kind, name);
-    const profile = getProfileSpec(type);
-
+    const profile = getProfileSpec(type, model);
     segs.push({ kind, name, a, b: c, profileSpec: profile, length: len, type });
   }
 
