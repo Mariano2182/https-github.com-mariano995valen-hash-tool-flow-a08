@@ -16,7 +16,7 @@ const qs = (sel, parent = document) => parent.querySelector(sel);
 const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
 
 import { buildConnectionsFromModel } from "./lib/connections/index.js";
-import { getProfileSpec, profilePolygon } from "./lib/profiles/index.js";
+import { getProfileSpec, getMassKgM, profilePolygon } from "./lib/profiles/index.js";
 
 const state = {
   session: null,
