@@ -572,6 +572,11 @@ function computeEngineering(model) {
 
 // -------------------- MODELO PARAMÉTRICO (JSON) --------------------
 function generateModelFromIndustrial() {
+  const profileColumn = qs("#ind-profile-column")?.value || "HEB300";
+const profileRafter = qs("#ind-profile-rafter")?.value || "IPE300";
+const profilePurlin = qs("#ind-profile-purlin")?.value || "Z200x70x15x3";
+const profileGirt = qs("#ind-profile-girt")?.value || "C200x70x15x3";
+  
   const span = Number(qs("#ind-span")?.value || 24);
   const length = Number(qs("#ind-length")?.value || 60);
   const height = Number(qs("#ind-height")?.value || 8);
