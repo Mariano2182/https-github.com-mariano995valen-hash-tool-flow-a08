@@ -17,6 +17,7 @@ const qsa = (sel, parent = document) => [...parent.querySelectorAll(sel)];
 
 import { buildConnectionsFromModel } from "./lib/connections/index.js";
 import { getProfileSpec, getMassKgM, profilePolygon } from "./lib/profiles/index.js";
+import { populateProfileSelectors } from "./lib/ui/profiles.js";
 
 const state = {
   session: null,
@@ -2312,6 +2313,8 @@ async function init() {
   bindAuth();
   bindWizard();
   bindIndustrialControls();
+
+  populateProfileSelectors();
 
   renderPermissions(null);
   renderBOMFromModel();
