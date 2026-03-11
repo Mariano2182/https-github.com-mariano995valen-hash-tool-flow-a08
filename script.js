@@ -769,118 +769,121 @@ function trClassForTechRow(t) {
 function renderBOMFromModel() {
   const tbody = qs("#materials-table");
   if (!tbody) return;
-const profs = state.model?.building?.profiles || {};
-  `Perfiles: COL ${profs.column || "-"} | RAF ${profs.rafter || "-"} | PUR ${profs.purlin || "-"} | GIR ${profs.girt || "-"}`
-  
-  if (!state.model) {
-    tbody.innerHTML = `<tr><td colspan="4">Generá un modelo o cargá un IFC.</td></tr>`;
+
+  if (!state.model || !state.model.elements?.length) {
+    tbody.innerHTML = `<tr><td colspan="10">Generá un modelo o cargá un IFC.</td></tr>`;
     return;
   }
 
   const b = state.model.building || {};
   const eng = computeEngineering(state.model);
-  const grouped = computeTotalsByGroup(state.model);
-  const mlByType = computeLinearMetersByType(state.model);
+  const profs = b.profiles || {};
 
-  const map = new Map();
+  function getProfileForType(type) {
+    if (type === "columna") return profs.column || "HEB300";
+    if (type === "cabio" || type === "viga") return profs.rafter || "IPE300";
+    if (type === "correas") return profs.purlin || "Z200x70x15x3";
+    if (type === "correas_columna") return profs.girt || "C200x70x15x3";
+    if (type === "bulon_m16") return "M16";
+    return "-";
+  }
+
+  function getMaterialForType(type) {
+    if (type === "columna" || type === "cabio" || type === "viga") return "S275";
+    if (type === "correas" || type === "correas_columna") return "ZAR250";
+    if (type === "bulon_m16") return "8.8";
+    return "-";
+  }
+
+  function getSystemForType(type) {
+    if (type === "columna" || type === "cabio" || type === "viga") return "PRIMARIA";
+    if (type === "correas" || type === "correas_columna") return "SECUNDARIA";
+    if (type === "bulon_m16") return "UNIONES";
+    return "OTROS";
+  }
+
+  function getPrefixForType(type) {
+    if (type === "columna") return "C";
+    if (type === "cabio" || type === "viga") return "R";
+    if (type === "correas") return "P";
+    if (type === "correas_columna") return "G";
+    if (type === "bulon_m16") return "B";
+    return "X";
+  }
+
+  function getNoteForType(type) {
+    if (type === "columna") return "Columna";
+    if (type === "cabio") return "Cabio";
+    if (type === "viga") return "Viga";
+    if (type === "correas") return "Correa techo";
+    if (type === "correas_columna") return "Larguero pared";
+    if (type === "bulon_m16") return "Bulonería";
+    return "-";
+  }
+
+  // Agrupación tipo Tekla
+  const groupedMap = new Map();
+
   for (const e of state.model.elements) {
-    const k = e.type;
-    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0, ml: 0 };
-    cur.qty += Number(e.qty) || 0;
-    cur.weightKg += Number(e.weightKg) || 0;
-    cur.ml += (Number(e.qty) || 0) * (Number(e.length) || 0);
-    map.set(k, cur);
+    const type = e.type || "unknown";
+    const profile = getProfileForType(type);
+    const material = getMaterialForType(type);
+    const system = getSystemForType(type);
+
+    const qty = Number(e.qty) || 0;
+    const length = Number(e.length) || 0;
+    const weightKg = Number(e.weightKg) || 0;
+
+    const key = [
+      type,
+      profile,
+      material,
+      system,
+      length.toFixed(3),
+    ].join("|");
+
+    if (!groupedMap.has(key)) {
+      groupedMap.set(key, {
+        type,
+        profile,
+        material,
+        system,
+        qty: 0,
+        length: 0,
+        weightKg: 0,
+        ids: [],
+      });
+    }
+
+    const row = groupedMap.get(key);
+    row.qty += qty;
+    row.length = length;
+    row.weightKg += weightKg;
+    if (e.id) row.ids.push(e.id);
   }
-  const rows = [...map.values()].sort((a, bb) => a.type.localeCompare(bb.type));
 
-  const techRows = [
-    { kind: "divider", name: "—", qty: "", w: "", status: "—" },
-
-    { kind: "section", name: "MÉTRICAS (PESO POR SISTEMA)", qty: "", w: "", status: "INFO" },
-    { kind: "tech", name: "Peso primaria (kg) — pórticos", qty: "", w: fmt(Math.round(grouped.wPrimary)), status: "OK" },
-    { kind: "tech", name: "Peso secundaria (kg) — correas+largueros", qty: "", w: fmt(Math.round(grouped.wSecondary)), status: "OK" },
-    { kind: "tech", name: "Peso total (kg)", qty: "", w: fmt(Math.round(grouped.wTotal)), status: "OK" },
-
-    { kind: "divider", name: "—", qty: "", w: "", status: "—" },
-
-    { kind: "section", name: "MÉTRICAS (PLANTA / CUBIERTA)", qty: "", w: "", status: "INFO" },
-    { kind: "tech", name: "Área en planta (m²)", qty: fmt2(eng.planArea), w: "", status: "OK" },
-    { kind: "tech", name: "Área de cubierta aprox (m²)", qty: fmt2(eng.roofArea), w: "", status: "OK" },
-
-    { kind: "tech", name: "kg/m² TOTAL (planta)", qty: "", w: fmt2(eng.kgm2Plan), status: "OK" },
-    { kind: "tech", name: "kg/m² PRIMARIA (planta)", qty: "", w: fmt2(eng.kgm2PlanPrimary), status: "OK" },
-    { kind: "tech", name: "kg/m² SECUNDARIA (planta)", qty: "", w: fmt2(eng.kgm2PlanSecondary), status: "OK" },
-
-    { kind: "tech", name: "kg/m² TOTAL (cubierta)", qty: "", w: fmt2(eng.kgm2Roof), status: "OK" },
-    { kind: "tech", name: "kg/m² PRIMARIA (cubierta)", qty: "", w: fmt2(eng.kgm2RoofPrimary), status: "OK" },
-    { kind: "tech", name: "kg/m² SECUNDARIA (cubierta)", qty: "", w: fmt2(eng.kgm2RoofSecondary), status: "OK" },
-
-    { kind: "divider", name: "—", qty: "", w: "", status: "—" },
-
-    { kind: "section", name: "MÉTRICAS (MODULACIÓN)", qty: "", w: "", status: "INFO" },
-    { kind: "tech", name: "Pórticos (un)", qty: fmt(b.frames || 0), w: "", status: "OK" },
-    { kind: "tech", name: "Vanos (frames-1)", qty: fmt(eng.bays), w: "", status: "OK" },
-    { kind: "tech", name: "Paso entre pórticos (m)", qty: fmt2(eng.step), w: "", status: "OK" },
-
-    { kind: "divider", name: "—", qty: "", w: "", status: "—" },
-
-    { kind: "section", name: "CORREAS DE TECHO (ULTRA TÉCNICO)", qty: "", w: "", status: "INFO" },
-    { kind: "tech", name: "Separación correas (m)", qty: fmt2(b.purlinSpacing || 0), w: "", status: "OK" },
-    { kind: "tech", name: "Cantidad líneas correas (across)", qty: fmt(eng.purlinLines), w: "", status: "OK" },
-    { kind: "tech", name: "Miembros correas segmentados (líneas × vanos)", qty: fmt(eng.purlinSegments), w: "", status: "OK" },
-
-    { kind: "divider", name: "—", qty: "", w: "", status: "—" },
-
-    { kind: "section", name: "LARGUEROS DE PARED (ULTRA TÉCNICO)", qty: "", w: "", status: "INFO" },
-    { kind: "tech", name: "Separación largueros (m)", qty: fmt2(b.girtSpacing || 0), w: "", status: "OK" },
-    { kind: "tech", name: "Niveles largueros (izq)", qty: fmt(eng.girtLevelsL), w: "", status: "OK" },
-    { kind: "tech", name: "Niveles largueros (der)", qty: fmt(eng.girtLevelsR), w: "", status: "OK" },
-    { kind: "tech", name: "Miembros largueros segmentados ((niveles izq+der) × vanos)", qty: fmt(eng.girtSegments), w: "", status: "OK" },
-
-    { kind: "divider", name: "—", qty: "", w: "", status: "—" },
-
-    { kind: "section", name: "METROS LINEALES (m.l.) POR TIPO", qty: "", w: "", status: "INFO" },
-    ...mlByType.map((r) => ({ kind: "tech", name: `m.l. ${r.type}`, qty: fmt2(r.ml), w: "", status: "OK" })),
-  ];
-
-  const bomHtml = rows
-    .map((r) => {
-      const displayName = FASTENER_CATALOG[r.type]?.label || r.type;
-      return `
-      <tr>
-        <td>${displayName}</td>
-        <td>${fmt(r.qty)}</td>
-        <td>${fmt(Math.round(r.weightKg))}</td>
-        <td>${fmt2(r.ml)} m.l.</td>
-      </tr>
-    `;
+  const groupedRows = [...groupedMap.values()]
+    .sort((a, b) => {
+      if (a.system !== b.system) return a.system.localeCompare(b.system);
+      if (a.type !== b.type) return a.type.localeCompare(b.type);
+      if (a.profile !== b.profile) return a.profile.localeCompare(b.profile);
+      return a.length - b.length;
     })
-    .join("");
+    .map((r, idx) => {
+      const pos = `${getPrefixForType(r.type)}-${String(idx + 1).padStart(3, "0")}`;
+      const lengthMm = Math.round((r.length || 0) * 1000);
+      const kgm = r.length > 0 && r.qty > 0 ? r.weightKg / (r.qty * r.length) : 0;
 
-  const techHtml = techRows
-    .map((t) => {
-      const cls = trClassForTechRow(t);
-      const label = t.kind === "divider" ? "—" : t.status ?? "";
-      return `
-      <tr class="${cls}">
-        <td>${t.name}</td>
-        <td>${t.qty ?? ""}</td>
-        <td>${t.w ?? ""}</td>
-        <td>${label}</td>
-      </tr>
-    `;
-    })
-    .join("");
+      return {
+        ...r,
+        pos,
+        lengthMm,
+        kgm,
+        note: getNoteForType(r.type),
+      };
+    });
 
-  tbody.innerHTML = bomHtml + techHtml;
-
-  const st = qs("#ifc-status");
-  if (st) {
-    st.textContent =
-      `Modelo: ${b.roof || "-"} — pendiente ${((b.slope || 0) * 100).toFixed(1)}% — ` +
-      `kg/m² total(planta) ${fmt2(eng.kgm2Plan)} | prim ${fmt2(eng.kgm2PlanPrimary)} | sec ${fmt2(eng.kgm2PlanSecondary)}`;
-  }
-}
+  const totalWeight = groupedRows.reduce((acc
 
 // -------------------- EXPORTS --------------------
 function exportJSON() {
