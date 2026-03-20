@@ -821,7 +821,6 @@ function renderBOMFromModel() {
     return "-";
   }
 
-  // Agrupación tipo Tekla
   const groupedMap = new Map();
 
   for (const e of state.model.elements) {
@@ -834,13 +833,7 @@ function renderBOMFromModel() {
     const length = Number(e.length) || 0;
     const weightKg = Number(e.weightKg) || 0;
 
-    const key = [
-      type,
-      profile,
-      material,
-      system,
-      length.toFixed(3),
-    ].join("|");
+    const key = [type, profile, material, system, length.toFixed(3)].join("|");
 
     if (!groupedMap.has(key)) {
       groupedMap.set(key, {
@@ -883,95 +876,121 @@ function renderBOMFromModel() {
       };
     });
 
-  const totalWeight = groupedRows.reduce((acc
+  const totalWeight = groupedRows.reduce((acc, r) => acc + (Number(r.weightKg) || 0), 0);
+  const totalQty = groupedRows.reduce((acc, r) => acc + (Number(r.qty) || 0), 0);
 
-// -------------------- EXPORTS --------------------
-function exportJSON() {
-  const st = qs("#ifc-status");
-  if (!state.model) {
-    if (st) st.textContent = "No hay modelo para exportar.";
-    return;
-  }
-  downloadText(`rmm_model_v${state.version}.json`, JSON.stringify(state.model, null, 2), "application/json");
-}
+  let lastSystem = null;
 
-function exportBOM() {
-  const st = qs("#ifc-status");
-  if (!state.model) {
-    if (st) st.textContent = "No hay modelo para exportar.";
-    return;
-  }
-
-  const b = state.model.building || {};
-  const eng = computeEngineering(state.model);
-  const totals = computeTotals(state.model);
-  const grouped = computeTotalsByGroup(state.model);
-  const mlByType = computeLinearMetersByType(state.model);
-
-  const map = new Map();
-  for (const e of state.model.elements) {
-    const k = e.type;
-    const cur = map.get(k) || { type: k, qty: 0, weightKg: 0, ml: 0 };
-    cur.qty += Number(e.qty) || 0;
-    cur.weightKg += Number(e.weightKg) || 0;
-    cur.ml += (Number(e.qty) || 0) * (Number(e.length) || 0);
-    map.set(k, cur);
-  }
-
-  const rows = [...map.values()];
-  const header = "Elemento,Cantidad,Peso_kg,MetrosLineales_m,Version\n";
-  const lines = rows
+  const bomHtml = groupedRows
     .map((r) => {
-      const name = FASTENER_CATALOG[r.type]?.label || r.type;
-      return `${name},${r.qty},${Math.round(r.weightKg)},${r.ml.toFixed(2)},${state.version}`;
+      const sectionRow =
+        r.system !== lastSystem
+          ? `
+            <tr class="bom-section">
+              <td colspan="10"><strong>${r.system}</strong></td>
+            </tr>
+          `
+          : "";
+
+      lastSystem = r.system;
+
+      return `
+        ${sectionRow}
+        <tr class="bom-tech">
+          <td>${r.pos}</td>
+          <td>${r.note}</td>
+          <td>${r.profile}</td>
+          <td>${r.material}</td>
+          <td>${fmt(r.qty)}</td>
+          <td>${fmt(r.lengthMm)}</td>
+          <td>${fmt2(r.kgm)}</td>
+          <td>${fmt(Math.round(r.weightKg))}</td>
+          <td>${r.system}</td>
+          <td>${r.ids.slice(0, 3).join(", ")}${r.ids.length > 3 ? "..." : ""}</td>
+        </tr>
+      `;
     })
-    .join("\n");
+    .join("");
 
-  const extra =
-    "\n\n#PESO_POR_SISTEMA\n" +
-    `peso_primaria_kg,,${Math.round(grouped.wPrimary)},,\n` +
-    `peso_secundaria_kg,,${Math.round(grouped.wSecondary)},,\n` +
-    `peso_total_kg,,${Math.round(grouped.wTotal)},,\n` +
-    "\n#METRICAS_TECNICAS\n" +
-    `roof,${b.roof || ""},,,\n` +
-    `pendiente_pct,${((b.slope || 0) * 100).toFixed(2)},,,\n` +
-    `span_m,${fmt2(b.span || 0)},,,\n` +
-    `length_m,${fmt2(b.length || 0)},,,\n` +
-    `frames,${b.frames || 0},,,\n` +
-    `bays,${eng.bays},,,\n` +
-    `step_m,${fmt2(eng.step)},,,\n` +
-    `area_planta_m2,${fmt2(eng.planArea)},,,\n` +
-    `area_cubierta_m2,${fmt2(eng.roofArea)},,,\n` +
-    `peso_total_kg,,${Math.round(totals.weight)},,\n` +
-    `kg_m2_total_planta,,${fmt2(eng.kgm2Plan)},,\n` +
-    `kg_m2_primaria_planta,,${fmt2(eng.kgm2PlanPrimary)},,\n` +
-    `kg_m2_secundaria_planta,,${fmt2(eng.kgm2PlanSecondary)},,\n` +
-    `kg_m2_total_cubierta,,${fmt2(eng.kgm2Roof)},,\n` +
-    `kg_m2_primaria_cubierta,,${fmt2(eng.kgm2RoofPrimary)},,\n` +
-    `kg_m2_secundaria_cubierta,,${fmt2(eng.kgm2RoofSecondary)},,\n` +
-    `purlin_spacing_m,${fmt2(b.purlinSpacing || 0)},,,\n` +
-    `purlin_lines,${eng.purlinLines},,,\n` +
-    `purlin_segments,${eng.purlinSegments},,,\n` +
-    `girt_spacing_m,${fmt2(b.girtSpacing || 0)},,,\n` +
-    `girt_levels_left,${eng.girtLevelsL},,,\n` +
-    `girt_levels_right,${eng.girtLevelsR},,,\n` +
-    `girt_segments,${eng.girtSegments},,,\n` +
-    "\n#METROS_LINEALES_POR_TIPO\n" +
-    mlByType.map((r) => `ml_${r.type},,,${r.ml.toFixed(2)},\n`).join("");
+  const summaryHtml = `
+    <tr class="bom-divider">
+      <td colspan="10">—</td>
+    </tr>
 
-  downloadText(`rmm_bom_ultra_v${state.version}.csv`, header + lines + extra, "text/csv");
-}
+    <tr class="bom-section">
+      <td colspan="10"><strong>RESUMEN</strong></td>
+    </tr>
 
-// ============================================================================
-// ============================== IFC EXPORT REAL ==============================
-// ============================================================================
+    <tr class="bom-tech bom-ok">
+      <td colspan="2"><strong>Nave</strong></td>
+      <td colspan="2">${b.roof || "-"}</td>
+      <td colspan="2"><strong>Luz</strong></td>
+      <td colspan="2">${fmt2(b.span || 0)} m</td>
+      <td colspan="2"><strong>Longitud</strong></td>
+    </tr>
 
-// ---- Math helpers (sin libs) ----
-function v3(x = 0, y = 0, z = 0) {
-  return { x, y, z };
-}
-function vSub(a, b) {
-  return v3(a.x - b.x, a.y - b.y, a.z - b.z);
+    <tr class="bom-tech bom-ok">
+      <td colspan="2"><strong>Valor</strong></td>
+      <td colspan="2">${fmt2(b.length || 0)} m</td>
+      <td colspan="2"><strong>Altura</strong></td>
+      <td colspan="2">${fmt2(b.height || 0)} m</td>
+      <td colspan="2"><strong>Pórticos</strong></td>
+    </tr>
+
+    <tr class="bom-tech bom-ok">
+      <td colspan="2"><strong>Valor</strong></td>
+      <td colspan="2">${fmt(b.frames || 0)}</td>
+      <td colspan="2"><strong>Pendiente</strong></td>
+      <td colspan="2">${fmt2((b.slope || 0) * 100)} %</td>
+      <td colspan="2"><strong>Vanos</strong></td>
+    </tr>
+
+    <tr class="bom-tech bom-ok">
+      <td colspan="2"><strong>Valor</strong></td>
+      <td colspan="2">${fmt(eng.bays || 0)}</td>
+      <td colspan="2"><strong>Paso pórticos</strong></td>
+      <td colspan="2">${fmt2(eng.step || 0)} m</td>
+      <td colspan="2"><strong>Peso total</strong></td>
+    </tr>
+
+    <tr class="bom-tech bom-ok">
+      <td colspan="2"><strong>Valor</strong></td>
+      <td colspan="2">${fmt(Math.round(totalWeight))} kg</td>
+      <td colspan="2"><strong>Piezas</strong></td>
+      <td colspan="2">${fmt(totalQty)}</td>
+      <td colspan="2"><strong>kg/m²</strong></td>
+    </tr>
+
+    <tr class="bom-tech bom-ok">
+      <td colspan="2"><strong>Valor</strong></td>
+      <td colspan="2">${fmt2(eng.kgm2Plan || 0)}</td>
+      <td colspan="2"><strong>Perf. columnas</strong></td>
+      <td colspan="2">${profs.column || "-"}</td>
+      <td colspan="2"><strong>Perf. cabios</strong></td>
+    </tr>
+
+    <tr class="bom-tech bom-ok">
+      <td colspan="2"><strong>Valor</strong></td>
+      <td colspan="2">${profs.rafter || "-"}</td>
+      <td colspan="2"><strong>Perf. correas</strong></td>
+      <td colspan="2">${profs.purlin || "-"}</td>
+      <td colspan="2"><strong>Perf. largueros</strong></td>
+    </tr>
+
+    <tr class="bom-tech bom-ok">
+      <td colspan="2"><strong>Valor</strong></td>
+      <td colspan="8">${profs.girt || "-"}</td>
+    </tr>
+  `;
+
+  tbody.innerHTML = bomHtml + summaryHtml;
+
+  const st = qs("#ifc-status");
+  if (st) {
+    st.textContent =
+      `Modelo: ${b.roof || "-"} — pendiente ${((b.slope || 0) * 100).toFixed(1)}% — ` +
+      `kg/m² total(planta) ${fmt2(eng.kgm2Plan)} | prim ${fmt2(eng.kgm2PlanPrimary)} | sec ${fmt2(eng.kgm2PlanSecondary)}`;
+  }
 }
 function vLen(a) {
   return Math.hypot(a.x, a.y, a.z);
